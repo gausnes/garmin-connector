@@ -6,7 +6,7 @@
  * `{ data: [...] }`).
  */
 import { assertActivityId, type GarminClient } from "./client.js";
-import type { Activity, ActivityDetail, BodyBatteryDay, DailySummary, SleepSummary } from "./model.js";
+import type { Activity, ActivityDetail, BodyBatteryDay, DailySummary, SleepSummary } from "./model/index.js";
 
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];

@@ -1,8 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { compact, type CompactRef } from "./compact.js";
+import { compact } from "./compact.js";
 import { decodeFitMessages } from "./fit.js";
-import { GarminApi, GarminApiError, type GarminClient } from "./garmin/index.js";
+import { GarminApi, type GarminClient } from "./garmin/index.js";
+import { calendarDateOf, paginate, resolveTimeseriesRef, run, summarizeActivity, walkPath } from "./response.js";
 
 const date = z
   .string()
@@ -17,117 +18,11 @@ const includeTimeseries = z
 const pageStart = z.number().int().min(0).optional().describe("Offset for paging. Default 0");
 const pageLimit = z.number().int().min(1).max(100).optional().describe("Max items per page. Default 20");
 
-interface Page {
-  total: number;
-  start: number;
-  limit: number;
-  items: unknown[];
-}
-
-/**
- * Page a date-range array newest-first. Items are compacted individually unless `full` is set.
- * `itemRef`, when given, builds the get_timeseries ref for one item (e.g. from its date field) so a
- * long array inside that item can be paged on its own instead of requiring `full`/include_timeseries.
- */
-function paginate(
-  data: unknown,
-  opts: { start?: number; limit?: number },
-  full = false,
-  itemRef?: (item: unknown) => CompactRef | undefined,
-): unknown {
-  if (!Array.isArray(data)) return full ? data : compact(data);
-  const items = [...data].reverse();
-  const start = Math.max(0, Math.floor(opts.start ?? 0));
-  const limit = Math.min(100, Math.max(1, Math.floor(opts.limit ?? 20)));
-  const page: Page = {
-    total: items.length,
-    start,
-    limit,
-    items: items
-      .slice(start, start + limit)
-      .map((item) => (full ? item : compact(item, { ref: itemRef?.(item) }))),
-  };
-  return page;
-}
-
-/** `item.calendarDate`, if that's what it is — the key `sleepSummaries`/`dailySummaries` items use. */
-function calendarDateOf(item: unknown): string | undefined {
-  const d = (item as { calendarDate?: unknown } | null)?.calendarDate;
-  return typeof d === "string" ? d : undefined;
-}
-
 const timeseriesRef = z.object({
   source: z.enum(["sleep", "garmin_get", "body_battery", "daily_summaries"]),
   args: z.record(z.string(), z.union([z.string(), z.number()])),
   path: z.array(z.union([z.string(), z.number()])),
 });
-
-const isoDate = /^\d{4}-\d{2}-\d{2}$/;
-
-function walkPath(root: unknown, path: (string | number)[]): unknown {
-  let node = root;
-  for (const key of path) {
-    if (node === null || typeof node !== "object") {
-      throw new Error(`ref.path not found at "${key}"`);
-    }
-    node = Array.isArray(node) ? node[key as number] : (node as Record<string, unknown>)[key as string];
-  }
-  return node;
-}
-
-/** FIT messages can carry 64-bit fields that the SDK decodes as BigInt, which JSON can't encode. */
-function jsonSafe(_key: string, v: unknown): unknown {
-  return typeof v === "bigint" ? v.toString() : v;
-}
-
-function ok(data: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, jsonSafe, 1) }] };
-}
-
-function fail(err: unknown) {
-  const msg =
-    err instanceof GarminApiError
-      ? `${err.message}${err.body ? `\nGarmin said: ${err.body}` : ""}`
-      : err instanceof Error
-        ? err.message
-        : String(err);
-  return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
-}
-
-async function run(fn: () => Promise<unknown>) {
-  try {
-    return ok(await fn());
-  } catch (err) {
-    return fail(err);
-  }
-}
-
-const ACTIVITY_FIELDS = [
-  "activityId",
-  "activityName",
-  "startTimeLocal",
-  "duration",
-  "movingDuration",
-  "distance",
-  "elevationGain",
-  "elevationLoss",
-  "averageSpeed",
-  "maxSpeed",
-  "averageHR",
-  "maxHR",
-  "calories",
-  "locationName",
-] as const;
-
-export function summarizeActivity(a: unknown): unknown {
-  if (!a || typeof a !== "object") return a;
-  const src = a as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const f of ACTIVITY_FIELDS) if (src[f] !== undefined && src[f] !== null) out[f] = src[f];
-  const type = src.activityType as { typeKey?: string } | undefined;
-  if (type?.typeKey) out.activityType = type.typeKey;
-  return Object.keys(out).length ? out : compact(a);
-}
 
 export function buildServer(garmin: GarminClient): McpServer {
   const api = new GarminApi(garmin);
@@ -366,39 +261,7 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     ({ ref, start, limit }) =>
       run(async () => {
-        const refDate = (): string => {
-          const d = ref.args.date;
-          if (typeof d !== "string" || !isoDate.test(d)) throw new Error("ref.args.date must be YYYY-MM-DD");
-          return d;
-        };
-        let root: unknown;
-        switch (ref.source) {
-          case "sleep":
-            root = await api.dailySleep(refDate());
-            break;
-          case "body_battery": {
-            const d = refDate();
-            const days = await api.bodyBattery(d, d);
-            root = days.find((x) => x.date === d);
-            if (!root) throw new Error(`No Body Battery data for ${d}`);
-            break;
-          }
-          case "daily_summaries": {
-            const d = refDate();
-            const days = await api.dailySummaries(d, d);
-            root = days.find((x) => x.calendarDate === d);
-            if (!root) throw new Error(`No daily summary for ${d}`);
-            break;
-          }
-          case "garmin_get": {
-            const apiPath = ref.args.api_path;
-            if (typeof apiPath !== "string" || !/^\/[A-Za-z0-9\-_/.?=&%]*$/.test(apiPath)) {
-              throw new Error("ref.args.api_path is not a valid Garmin API path");
-            }
-            root = await garmin.getJson(apiPath);
-            break;
-          }
-        }
+        const root = await resolveTimeseriesRef(garmin, api, ref);
         const node = walkPath(root, ref.path);
         if (!Array.isArray(node)) throw new Error(`ref.path does not point to an array: ${ref.path.join(".")}`);
         const s = Math.max(0, Math.floor(start ?? 0));

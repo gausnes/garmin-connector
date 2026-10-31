@@ -21,6 +21,20 @@ export function compact(value: unknown, opts: CompactOptions = {}): unknown {
   return compactInner(value, opts.maxArray ?? 32, 0, [], opts.ref);
 }
 
+/** Recursively drops null/undefined fields, with no array truncation — plain JSON cleanup. */
+export function stripNullish(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripNullish);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v === null || v === undefined) continue;
+      out[k] = stripNullish(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 function compactInner(
   value: unknown,
   maxArray: number,
