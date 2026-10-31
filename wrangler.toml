@@ -1,0 +1,11 @@
+name = "garmin-connector"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Secrets (never commit these; set with `npx wrangler secret put <NAME>`):
+#   GARMIN_API_KEY   - Garmin Connect personal API key
+#   MCP_PATH_SECRET  - long random string; endpoint is https://<worker>/mcp/<MCP_PATH_SECRET>
+
+[observability]
+enabled = true
