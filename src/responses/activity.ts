@@ -1,5 +1,3 @@
-import { stripNullish } from "./strip-nullish.js";
-
 const ACTIVITY_FIELDS = [
   "activityId",
   "activityName",
@@ -24,5 +22,5 @@ export function summarizeActivity(a: unknown): unknown {
   for (const f of ACTIVITY_FIELDS) if (src[f] !== undefined && src[f] !== null) out[f] = src[f];
   const type = src.activityType as { typeKey?: string } | undefined;
   if (type?.typeKey) out.activityType = type.typeKey;
-  return Object.keys(out).length ? out : stripNullish(a);
+  return Object.keys(out).length ? out : a;
 }

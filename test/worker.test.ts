@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import worker, { authorize, safeEqual, type Env } from "../src/index.js";
-import { stripNullish } from "../src/responses/index.js";
+import { bigIntSafe, ok } from "../src/responses/index.js";
 
 const SECRET = "s".repeat(40);
 const env: Env = { GARMIN_API_KEY: "key-123", MCP_PATH_SECRET: SECRET };
@@ -33,16 +33,27 @@ describe("auth", () => {
   });
 });
 
-describe("stripNullish", () => {
-  it("drops null and undefined fields, recursively, without touching arrays' contents", () => {
-    const out = stripNullish({
-      a: null,
-      b: undefined,
-      nested: { c: null, d: 1 },
-      levels: [1, null, 2],
-      score: 80,
-    });
-    expect(out).toEqual({ nested: { d: 1 }, levels: [1, null, 2], score: 80 });
+describe("ok", () => {
+  it("drops null fields (but not undefined-turned-null array entries) and stringifies BigInt", () => {
+    const result = ok({ a: null, nested: { c: null, d: 1n }, levels: [1, null, 2], score: 80 });
+    const parsed = JSON.parse(result.content[0]!.text) as Record<string, unknown>;
+    expect(parsed).toEqual({ nested: { d: "1" }, levels: [1, null, 2], score: 80 });
+  });
+
+  it("still serializes a genuinely-null top-level result as the literal null, not undefined", () => {
+    const result = ok(null);
+    expect(result.content[0]!.text).toBe("null");
+  });
+
+  it("only attaches structuredContent when asked to, reusing data as-is", () => {
+    expect(ok({ a: 1 })).not.toHaveProperty("structuredContent");
+    expect(ok({ a: 1 }, true).structuredContent).toEqual({ a: 1 });
+  });
+});
+
+describe("bigIntSafe", () => {
+  it("stringifies BigInt and drops nulls, same as the ok() text pass", () => {
+    expect(bigIntSafe({ a: null, b: 1n, items: [{ c: 2n }] })).toEqual({ b: "1", items: [{ c: "2" }] });
   });
 });
 
@@ -73,9 +84,9 @@ describe("MCP endpoint", () => {
         "get_body_battery",
         "get_daily_summaries",
         "get_hrv",
+        "get_body_battery_series",
         "get_sleep",
         "get_sleep_range",
-        "get_timeseries",
         "list_activities",
       ].sort(),
     );

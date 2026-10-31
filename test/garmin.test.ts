@@ -143,7 +143,7 @@ describe("GarminApi", () => {
   });
 });
 
-describe("get_timeseries", () => {
+describe("get_body_battery_series", () => {
   // Mirrors src/index.ts: a fresh server + transport per request (stateless, no shared session).
   async function send(client: GarminClient, body: object) {
     const server = buildServer(client);
@@ -161,7 +161,7 @@ describe("get_timeseries", () => {
     );
   }
 
-  async function callTool(client: GarminClient, name: string, args: object) {
+  async function callToolRaw(client: GarminClient, name: string, args: object) {
     await send(client, {
       jsonrpc: "2.0",
       id: 1,
@@ -169,8 +169,15 @@ describe("get_timeseries", () => {
       params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } },
     });
     const res = await send(client, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } });
-    const body = (await res.json()) as { result: { content: { text: string }[]; isError?: boolean } };
-    return JSON.parse(body.result.content[0]!.text) as Record<string, unknown>;
+    const body = (await res.json()) as {
+      result: { content: { text: string }[]; structuredContent?: unknown; isError?: boolean };
+    };
+    return body.result;
+  }
+
+  async function callTool(client: GarminClient, name: string, args: object) {
+    const result = await callToolRaw(client, name, args);
+    return JSON.parse(result.content[0]!.text) as Record<string, unknown>;
   }
 
   it("get_sleep has no confirmed long-array field, so even a long array passes through untouched", async () => {
@@ -187,7 +194,7 @@ describe("get_timeseries", () => {
   });
 
   it("pages through one day's array omitted by get_body_battery, keyed by `date` not calendarDate", async () => {
-    mockToken("k"); // one exchange, cached for the second (get_timeseries) call
+    mockToken("k"); // one exchange, cached for the second (get_body_battery_series) call
     const bodyBatteryValuesArray = Array.from({ length: 40 }, (_, i) => [i, i]);
     const days = [bodyBatteryDayFixture("2026-10-28"), bodyBatteryDayFixture("2026-10-29", { bodyBatteryValuesArray })];
     nock(DEFAULT_BASE_URL)
@@ -205,7 +212,13 @@ describe("get_timeseries", () => {
     expect(stub.omitted_items).toBe(40);
     expect(stub.ref).toEqual({ source: "body_battery", date: "2026-10-29" });
 
-    const series = await callTool(client, "get_timeseries", { ref: stub.ref });
-    expect(series).toEqual({ total: 40, start: 0, limit: 200, items: bodyBatteryValuesArray });
+    const result = await callToolRaw(client, "get_body_battery_series", { ref: stub.ref });
+    const expected = { total: 40, start: 0, limit: 200, items: bodyBatteryValuesArray };
+    expect(JSON.parse(result.content[0]!.text)).toEqual(expected);
+    // Also confirms the SDK's own server-side validation of structuredContent against our
+    // outputSchema actually passes — a schema mismatch here would come back as an McpError instead
+    // of a normal tool result, which result.isError/content wouldn't even get this far to assert on.
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual(expected);
   });
 });

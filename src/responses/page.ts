@@ -1,5 +1,3 @@
-import { stripNullish } from "./strip-nullish.js";
-
 export interface Page {
   total: number;
   start: number;
@@ -7,14 +5,14 @@ export interface Page {
   items: unknown[];
 }
 
-/** Page a date-range array newest-first. Items have null fields stripped unless `full` is set. */
+/** Page a date-range array newest-first. `full`/`summarizeItem` let a caller swap in per-item truncation. */
 export function paginate(
   data: unknown,
   opts: { start?: number; limit?: number },
   full = false,
-  summarizeItem: (item: unknown) => unknown = stripNullish,
+  summarizeItem: (item: unknown) => unknown = (item) => item,
 ): unknown {
-  if (!Array.isArray(data)) return full ? data : stripNullish(data);
+  if (!Array.isArray(data)) return data;
   const items = [...data].reverse();
   const start = Math.max(0, Math.floor(opts.start ?? 0));
   const limit = Math.min(100, Math.max(1, Math.floor(opts.limit ?? 20)));
