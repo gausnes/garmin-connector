@@ -67,12 +67,19 @@ For Claude Code: `claude mcp add --transport http garmin https://garmin-connecto
 
 ## Continuous deployment (optional)
 
-`.github/workflows/ci.yml` typechecks, tests and dry-run-bundles every PR and push. On pushes to `main` it also deploys, once you add these repository secrets (Settings → Secrets and variables → Actions):
+`.github/workflows/ci.yml` typechecks, tests and dry-run-bundles every PR and push. The `deploy` job runs under `environment: production`, so its secrets live on that GitHub Environment, not the plain repo Actions secrets page: GitHub repo → **Settings → Environments → production → Environment secrets**. Add:
 
 - `CLOUDFLARE_API_TOKEN`: create it at dash.cloudflare.com → My Profile → API Tokens, using the **Edit Cloudflare Workers** template
 - `CLOUDFLARE_ACCOUNT_ID`: shown on the Workers & Pages overview page
 
 Without them, the deploy job is skipped. Forks can use their own.
+
+**When `CLOUDFLARE_API_TOKEN` expires** (tokens can be created with an expiration date), the `deploy` job starts failing on push to `main` with an auth error from `wrangler-action`. To rotate it:
+1. dash.cloudflare.com → My Profile → API Tokens → create a new one with the same **Edit Cloudflare Workers** template.
+2. GitHub repo → Settings → Environments → production → Environment secrets → edit `CLOUDFLARE_API_TOKEN` → paste the new value.
+3. Revoke the old token from the Cloudflare dashboard once the next deploy succeeds.
+
+`CLOUDFLARE_ACCOUNT_ID` is just your account identifier, not a credential — it doesn't expire and only needs updating if you move the Worker to a different Cloudflare account.
 
 ## Development
 
