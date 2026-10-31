@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import nock from "nock";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
@@ -9,9 +10,9 @@ import {
   resetActivityCache,
   resetTokenCache,
   TOKEN_PATH,
-} from "../src/garmin/index.js";
-import { buildServer } from "../src/tools.js";
-import { bodyBatteryDayFixture, dailySleepFixture, dailySummaryFixture, jwt, mockToken } from "./garmin-mock.js";
+} from "../src/garmin/index.ts";
+import { buildServer } from "../src/tools.ts";
+import { bodyBatteryDayFixture, dailySleepFixture, dailySummaryFixture, jwt, mockToken } from "./garmin-mock.ts";
 
 beforeEach(() => {
   resetTokenCache();
@@ -21,7 +22,7 @@ beforeEach(() => {
 
 afterEach(() => {
   // Every defined interceptor must have been hit, and nothing escaped to a real network call.
-  expect(nock.isDone()).toBe(true);
+  assert.strictEqual(nock.isDone(), true);
   nock.cleanAll();
   nock.enableNetConnect();
 });
@@ -59,9 +60,10 @@ describe("GarminClient", () => {
       .reply(200, []);
 
     const c = new GarminClient({ apiKey: "k" });
-    await expect(
-      c.getJson("/activitylist-service/activities/search/activities", { start: 0, limit: 20 }),
-    ).resolves.toEqual([]);
+    assert.deepStrictEqual(
+      await c.getJson("/activitylist-service/activities/search/activities", { start: 0, limit: 20 }),
+      [],
+    );
   });
 
   it("refreshes the token proactively when it's within the window before expiry", async () => {
@@ -85,16 +87,17 @@ describe("GarminClient", () => {
   it("explains a bad API key", async () => {
     nock(DEFAULT_BASE_URL).post(TOKEN_PATH).reply(403, "nope");
     const c = new GarminClient({ apiKey: "bad" });
-    await expect(c.getJson("/sleep-service/sleep/dailySleep", { date: "2026-10-30" })).rejects.toThrow(
+    await assert.rejects(
+      c.getJson("/sleep-service/sleep/dailySleep", { date: "2026-10-30" }),
       /personal API key is valid/,
     );
   });
 
   it("rejects bad activity ids and paths without any network call", async () => {
     const c = new GarminClient({ apiKey: "k" });
-    await expect(c.downloadActivity("../x")).rejects.toThrow(/positive integer/);
-    await expect(c.getJson("https://evil.example/x")).rejects.toThrow(/Invalid API path/);
-    await expect(c.getJson("//evil.example/x")).rejects.toThrow(/Invalid API path/);
+    await assert.rejects(c.downloadActivity("../x"), /positive integer/);
+    await assert.rejects(c.getJson("https://evil.example/x"), /Invalid API path/);
+    await assert.rejects(c.getJson("//evil.example/x"), /Invalid API path/);
   });
 
   it("explains network failures with the underlying reason, not just \"fetch failed\"", async () => {
@@ -105,13 +108,14 @@ describe("GarminClient", () => {
       .replyWithError(new Error("network down"));
 
     const c = new GarminClient({ apiKey: "k" });
-    await expect(c.getJson("/sleep-service/sleep/dailySleep", { date: "2026-10-30" })).rejects.toThrow(
+    await assert.rejects(
+      c.getJson("/sleep-service/sleep/dailySleep", { date: "2026-10-30" }),
       /Could not reach Garmin.*network down/,
     );
   });
 
   it("reads the JWT exp claim", () => {
-    expect(jwtExpiration(jwt(1234))).toBe(1234);
+    assert.strictEqual(jwtExpiration(jwt(1234)), 1234);
   });
 
   it("caches a downloaded activity file across calls, per isolate", async () => {
@@ -137,9 +141,7 @@ describe("GarminApi", () => {
       .reply(200, { data: [dailySummaryFixture("2026-10-29")] });
 
     const api = new GarminApi(new GarminClient({ apiKey: "k" }));
-    await expect(api.dailySummaries("2026-10-29", "2026-10-29")).resolves.toEqual([
-      dailySummaryFixture("2026-10-29"),
-    ]);
+    assert.deepStrictEqual(await api.dailySummaries("2026-10-29", "2026-10-29"), [dailySummaryFixture("2026-10-29")]);
   });
 });
 
@@ -192,7 +194,7 @@ describe("get_body_battery_series", () => {
 
     const client = new GarminClient({ apiKey: "k" });
     const sleep = await callTool(client, "get_sleep", { date: "2026-10-30" });
-    expect(sleep.sleepLevels).toEqual(sleepLevels);
+    assert.deepStrictEqual(sleep.sleepLevels, sleepLevels);
   });
 
   it("pages through one day's array omitted by get_body_battery, keyed by `date` not calendarDate", async () => {
@@ -211,8 +213,8 @@ describe("get_body_battery_series", () => {
     const page = await callTool(client, "get_body_battery", { start_date: "2026-10-28", end_date: "2026-10-29" });
     const items = (page as { items: { bodyBatteryValuesArray: { omitted_items: number; ref: unknown } }[] }).items;
     const stub = items[0]!.bodyBatteryValuesArray; // newest-first, so 10-29 is items[0]
-    expect(stub.omitted_items).toBe(40);
-    expect(stub.ref).toEqual({ source: "body_battery", date: "2026-10-29" });
+    assert.strictEqual(stub.omitted_items, 40);
+    assert.deepStrictEqual(stub.ref, { source: "body_battery", date: "2026-10-29" });
 
     const result = await callToolRaw(client, "get_body_battery_series", { ref: stub.ref });
     const expected = { total: 40, start: 0, limit: 200, items: bodyBatteryValuesArray };
@@ -221,8 +223,8 @@ describe("get_body_battery_series", () => {
     // validation against our outputSchema passed — a mismatch would come back as an McpError
     // instead of a normal tool result, which result.isError/content wouldn't even get this far to
     // assert on.
-    expect(result.content).toEqual([]);
-    expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toEqual(expected);
+    assert.deepStrictEqual(result.content, []);
+    assert.ok(!result.isError);
+    assert.deepStrictEqual(result.structuredContent, expected);
   });
 });

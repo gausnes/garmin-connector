@@ -1,3 +1,3 @@
-export * from "./client.js";
-export * from "./api.js";
-export * from "./model/index.js";
+export * from "./client.ts";
+export * from "./api.ts";
+export * from "./model/index.ts";

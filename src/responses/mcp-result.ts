@@ -1,4 +1,4 @@
-import { GarminApiError } from "../garmin/index.js";
+import { GarminApiError } from "../garmin/index.ts";
 
 /**
  * Replacer for the one JSON.stringify call every response goes through: stringifies BigInt (FIT

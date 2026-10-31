@@ -1,4 +1,4 @@
-import type { BodyBatteryDay, GarminApi } from "../garmin/index.js";
+import type { BodyBatteryDay, GarminApi } from "../garmin/index.ts";
 
 /**
  * Body Battery is the only range endpoint with a confirmed long-array field

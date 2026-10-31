@@ -1,4 +1,4 @@
-import type { WellnessChronology } from "./wellness-chronology.js";
+import type { WellnessChronology } from "./wellness-chronology.ts";
 
 /** One day from dailySummaries (the endpoint wraps an array of these in `{ data: [...] }`). */
 export interface DailySummary {

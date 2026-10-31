@@ -6,8 +6,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc",
-    "test": "vitest run",
-    "check": "tsc && vitest run && wrangler deploy --dry-run --outdir dist"
+    "test": "node --test test/",
+    "check": "tsc && node --test test/ && wrangler deploy --dry-run --outdir dist"
   },
   "repository": {
     "type": "git",
@@ -29,9 +29,9 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261031.1",
+    "@types/node": "^26.6.6",
     "nock": "^15.0.5",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5",
     "wrangler": "^4.156.0"
   },
   "private": true,

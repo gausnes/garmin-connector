@@ -15,13 +15,14 @@ export const TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-k
 const REFRESH_WINDOW_SECONDS = 60 * 60;
 
 export class GarminApiError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-    readonly body?: string,
-  ) {
+  readonly status?: number;
+  readonly body?: string;
+
+  constructor(message: string, status?: number, body?: string) {
     super(message);
     this.name = "GarminApiError";
+    this.status = status;
+    this.body = body;
   }
 }
 

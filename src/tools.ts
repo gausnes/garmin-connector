@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { decodeFitMessages } from "./fit.js";
-import { type BodyBatteryDay, GarminApi, type GarminClient } from "./garmin/index.js";
+import { decodeFitMessages } from "./fit.ts";
+import { type BodyBatteryDay, GarminApi, type GarminClient } from "./garmin/index.ts";
 import {
   bigIntSafe,
   pageArray,
@@ -10,7 +10,7 @@ import {
   run,
   summarizeActivity,
   summarizeBodyBatteryDay,
-} from "./responses/index.js";
+} from "./responses/index.ts";
 
 const date = z
   .string()

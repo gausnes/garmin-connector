@@ -4,7 +4,7 @@
  * source array, and wrapping handler results/errors into MCP content (including null-dropping,
  * folded into the one JSON.stringify pass every response already goes through). One file per concern.
  */
-export * from "./activity.js";
-export * from "./body-battery.js";
-export * from "./mcp-result.js";
-export * from "./page.js";
+export * from "./activity.ts";
+export * from "./body-battery.ts";
+export * from "./mcp-result.ts";
+export * from "./page.ts";

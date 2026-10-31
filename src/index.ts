@@ -1,6 +1,6 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { GarminClient } from "./garmin/index.js";
-import { buildServer } from "./tools.js";
+import { GarminClient } from "./garmin/index.ts";
+import { buildServer } from "./tools.ts";
 
 export interface Env {
   /** Garmin Connect personal API key (wrangler secret). */

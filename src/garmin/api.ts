@@ -5,15 +5,19 @@
  * Garmin ever returns something else (as dailySummaries already does by wrapping its array in
  * `{ data: [...] }`).
  */
-import { assertActivityId, type GarminClient } from "./client.js";
-import type { Activity, ActivityDetail, BodyBatteryDay, DailySummary, SleepSummary } from "./model/index.js";
+import { assertActivityId, type GarminClient } from "./client.ts";
+import type { Activity, ActivityDetail, BodyBatteryDay, DailySummary, SleepSummary } from "./model/index.ts";
 
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
 export class GarminApi {
-  constructor(private readonly client: GarminClient) {}
+  private readonly client: GarminClient;
+
+  constructor(client: GarminClient) {
+    this.client = client;
+  }
 
   dailySleep(date: string): Promise<SleepSummary> {
     return this.client.getJson("/sleep-service/sleep/dailySleep", { date }) as Promise<SleepSummary>;

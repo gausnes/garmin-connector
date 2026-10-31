@@ -1,4 +1,4 @@
-import type { BodyBatteryValueDescriptor } from "./body-battery-value-descriptor.js";
+import type { BodyBatteryValueDescriptor } from "./body-battery-value-descriptor.ts";
 
 /**
  * One day from bodyBattery reports/daily. Keyed by `date`, not `calendarDate` like the others.

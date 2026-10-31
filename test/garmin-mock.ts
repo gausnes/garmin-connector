@@ -1,5 +1,5 @@
 import nock from "nock";
-import { DEFAULT_BASE_URL, TOKEN_PATH } from "../src/garmin/index.js";
+import { DEFAULT_BASE_URL, TOKEN_PATH } from "../src/garmin/index.ts";
 
 export function jwt(expSec: number): string {
   const b64 = (o: object) => btoa(JSON.stringify(o)).replace(/=+$/, "");

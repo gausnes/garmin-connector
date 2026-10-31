@@ -6,13 +6,13 @@
  *
  * One interface per file, grouped by the endpoint that returns it.
  */
-export * from "./activity-detail.js";
-export * from "./activity-summary-dto.js";
-export * from "./activity-type-ref.js";
-export * from "./activity.js";
-export * from "./body-battery-day.js";
-export * from "./body-battery-value-descriptor.js";
-export * from "./daily-summary.js";
-export * from "./sleep-summary.js";
-export * from "./type-ref.js";
-export * from "./wellness-chronology.js";
+export * from "./activity-detail.ts";
+export * from "./activity-summary-dto.ts";
+export * from "./activity-type-ref.ts";
+export * from "./activity.ts";
+export * from "./body-battery-day.ts";
+export * from "./body-battery-value-descriptor.ts";
+export * from "./daily-summary.ts";
+export * from "./sleep-summary.ts";
+export * from "./type-ref.ts";
+export * from "./wellness-chronology.ts";
