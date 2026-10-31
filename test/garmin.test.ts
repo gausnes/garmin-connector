@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import nock from "nock";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { DEFAULT_BASE_URL, GarminClient, jwtExpiration, resetActivityCache, resetTokenCache, TOKEN_PATH } from "../src/garmin.js";
+import {
+  DEFAULT_BASE_URL,
+  GarminApi,
+  GarminClient,
+  jwtExpiration,
+  resetActivityCache,
+  resetTokenCache,
+  TOKEN_PATH,
+} from "../src/garmin/index.js";
 import { buildServer } from "../src/tools.js";
 import { bodyBatteryDayFixture, dailySleepFixture, dailySummaryFixture, jwt, mockToken } from "./garmin-mock.js";
 
@@ -32,8 +40,8 @@ describe("GarminClient", () => {
       .reply(200, []);
 
     const c = new GarminClient({ apiKey: "key-123" });
-    await c.dailySleep("2026-10-30");
-    await c.sleepSummaries("2026-10-01", "2026-10-30");
+    await c.getJson("/sleep-service/sleep/dailySleep", { date: "2026-10-30" });
+    await c.getJson("/sleep-service/sleep/dailySleepSummariesByDate", { startDate: "2026-10-01", endDate: "2026-10-30" });
     // afterEach's nock.isDone() proves: one token exchange (cached for the second call), and both
     // data requests carried the bearer token at the right path and query string.
   });
@@ -51,7 +59,9 @@ describe("GarminClient", () => {
       .reply(200, []);
 
     const c = new GarminClient({ apiKey: "k" });
-    await expect(c.searchActivities({})).resolves.toEqual([]);
+    await expect(
+      c.getJson("/activitylist-service/activities/search/activities", { start: 0, limit: 20 }),
+    ).resolves.toEqual([]);
   });
 
   it("refreshes the token proactively when it's within the window before expiry", async () => {
@@ -66,34 +76,25 @@ describe("GarminClient", () => {
       .reply(200, dailySleepFixture("2026-10-30"));
 
     const c = new GarminClient({ apiKey: "k", now: () => nowMs });
-    await c.dailySleep("2026-10-30");
+    await c.getJson("/sleep-service/sleep/dailySleep", { date: "2026-10-30" });
     // afterEach's nock.isDone() proves this didn't reuse the near-expiry token: a second token
     // exchange had to happen, not just a second data request on the first token.
-    await c.dailySleep("2026-10-30");
+    await c.getJson("/sleep-service/sleep/dailySleep", { date: "2026-10-30" });
   });
 
   it("explains a bad API key", async () => {
     nock(DEFAULT_BASE_URL).post(TOKEN_PATH).reply(403, "nope");
     const c = new GarminClient({ apiKey: "bad" });
-    await expect(c.dailySleep("2026-10-30")).rejects.toThrow(/personal API key is valid/);
+    await expect(c.getJson("/sleep-service/sleep/dailySleep", { date: "2026-10-30" })).rejects.toThrow(
+      /personal API key is valid/,
+    );
   });
 
   it("rejects bad activity ids and paths without any network call", async () => {
     const c = new GarminClient({ apiKey: "k" });
-    await expect(c.activity("../x")).rejects.toThrow(/positive integer/);
+    await expect(c.downloadActivity("../x")).rejects.toThrow(/positive integer/);
     await expect(c.getJson("https://evil.example/x")).rejects.toThrow(/Invalid API path/);
     await expect(c.getJson("//evil.example/x")).rejects.toThrow(/Invalid API path/);
-  });
-
-  it("unwraps dailySummaries' { data: [...] } envelope", async () => {
-    mockToken("k");
-    nock(DEFAULT_BASE_URL)
-      .get("/usersummary-service/v2/dailysummaries")
-      .query({ startDate: "2026-10-29", endDate: "2026-10-29" })
-      .reply(200, { data: [dailySummaryFixture("2026-10-29")] });
-
-    const c = new GarminClient({ apiKey: "k" });
-    await expect(c.dailySummaries("2026-10-29", "2026-10-29")).resolves.toEqual([dailySummaryFixture("2026-10-29")]);
   });
 
   it("explains network failures with the underlying reason, not just \"fetch failed\"", async () => {
@@ -104,7 +105,9 @@ describe("GarminClient", () => {
       .replyWithError(new Error("network down"));
 
     const c = new GarminClient({ apiKey: "k" });
-    await expect(c.dailySleep("2026-10-30")).rejects.toThrow(/Could not reach Garmin.*network down/);
+    await expect(c.getJson("/sleep-service/sleep/dailySleep", { date: "2026-10-30" })).rejects.toThrow(
+      /Could not reach Garmin.*network down/,
+    );
   });
 
   it("reads the JWT exp claim", () => {
@@ -122,6 +125,21 @@ describe("GarminClient", () => {
     // left to match, and nock.disableNetConnect() would fail the test.
     await c.downloadActivity("123");
     await c.downloadActivity("456");
+  });
+});
+
+describe("GarminApi", () => {
+  it("unwraps dailySummaries' { data: [...] } envelope", async () => {
+    mockToken("k");
+    nock(DEFAULT_BASE_URL)
+      .get("/usersummary-service/v2/dailysummaries")
+      .query({ startDate: "2026-10-29", endDate: "2026-10-29" })
+      .reply(200, { data: [dailySummaryFixture("2026-10-29")] });
+
+    const api = new GarminApi(new GarminClient({ apiKey: "k" }));
+    await expect(api.dailySummaries("2026-10-29", "2026-10-29")).resolves.toEqual([
+      dailySummaryFixture("2026-10-29"),
+    ]);
   });
 });
 

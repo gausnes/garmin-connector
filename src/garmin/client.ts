@@ -1,5 +1,5 @@
 /**
- * Minimal client for the official Garmin Connect Personal API.
+ * Low-level transport for the official Garmin Connect Personal API.
  *
  * Auth flow (per Garmin's reference client, garmin/connect-personal-api-python):
  *   POST {base}/personalapitoken-service/personal-api/personal-api-key/token
@@ -67,6 +67,19 @@ export function jwtExpiration(token: string): number {
 async function fingerprint(key: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export function assertActivityId(id: string): void {
+  if (!/^[1-9]\d*$/.test(id)) throw new GarminApiError("activity_id must be a positive integer");
+}
+
+function withQuery(path: string, params?: Record<string, string | number | undefined>): string {
+  if (!params) return path;
+  const url = new URL(path, "http://x");
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
+  }
+  return url.pathname + url.search;
 }
 
 export interface GarminClientOptions {
@@ -182,61 +195,4 @@ export class GarminClient {
     activityCache.set(activityId, buf);
     return buf;
   }
-
-  // ---- Typed wrappers (endpoint paths from Garmin's reference client) ----
-
-  dailySleep(date: string) {
-    return this.getJson("/sleep-service/sleep/dailySleep", { date });
-  }
-  sleepSummaries(startDate: string, endDate: string) {
-    return this.getJson("/sleep-service/sleep/dailySleepSummariesByDate", { startDate, endDate });
-  }
-  /** Unlike the other range endpoints, Garmin wraps this one as `{ data: [...] }`. */
-  async dailySummaries(startDate: string, endDate: string): Promise<unknown[]> {
-    const res = (await this.getJson("/usersummary-service/v2/dailysummaries", { startDate, endDate })) as {
-      data?: unknown;
-    } | null;
-    return Array.isArray(res?.data) ? res.data : [];
-  }
-  hrvSummaries(startDate: string, endDate: string) {
-    return this.getJson(`/hrv-service/hrv/daily/${startDate}/${endDate}`);
-  }
-  bodyBattery(startDate: string, endDate: string) {
-    return this.getJson("/wellness-service/wellness/bodyBattery/reports/daily", { startDate, endDate });
-  }
-  dailyHeartRate(date: string) {
-    return this.getJson("/wellness-service/wellness/dailyHeartRate", { date });
-  }
-  searchActivities(opts: {
-    start?: number;
-    limit?: number;
-    startDate?: string;
-    endDate?: string;
-    activityType?: string;
-  }) {
-    return this.getJson("/activitylist-service/activities/search/activities", {
-      start: opts.start ?? 0,
-      limit: opts.limit ?? 20,
-      startDate: opts.startDate,
-      endDate: opts.endDate,
-      activityType: opts.activityType,
-    });
-  }
-  async activity(activityId: string) {
-    assertActivityId(activityId);
-    return this.getJson(`/activity-service/activity/${activityId}`);
-  }
-}
-
-export function assertActivityId(id: string): void {
-  if (!/^[1-9]\d*$/.test(id)) throw new GarminApiError("activity_id must be a positive integer");
-}
-
-export function withQuery(path: string, params?: Record<string, string | number | undefined>): string {
-  if (!params) return path;
-  const url = new URL(path, "http://x");
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
-  }
-  return url.pathname + url.search;
 }

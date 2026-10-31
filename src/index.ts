@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { GarminClient } from "./garmin.js";
+import { GarminClient } from "./garmin/index.js";
 import { buildServer } from "./tools.js";
 
 export interface Env {

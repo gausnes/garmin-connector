@@ -4,7 +4,11 @@ Cloudflare Worker serving a stateless MCP server (Streamable HTTP, JSON response
 
 ## Layout
 - `src/index.ts`: Worker entry. Auth via `/mcp/<MCP_PATH_SECRET>` or `Authorization: Bearer` on `/mcp`. Builds a fresh MCP server per request.
-- `src/garmin.ts`: API client. API key → JWT bearer token (cached in isolate memory, refreshed within 1h of `exp`, retried once on 401). Downloaded activity files are also cached in isolate memory, since `get_activity_fit` pages through one activity with several calls.
+- `src/garmin/`: the Garmin API client, split by concern.
+  - `client.ts`: transport. API key → JWT bearer token (cached in isolate memory, refreshed within 1h of `exp`, retried once on 401). Downloaded activity files are also cached in isolate memory, since `get_activity_fit` pages through one activity with several calls.
+  - `api.ts`: `GarminApi`, a typed per-endpoint layer over a `GarminClient` (paths from Garmin's reference client). Types are compile-time only, not runtime-validated, so array-returning methods still defensively fall back to `[]`.
+  - `model.ts`: TS shapes for confirmed response fields, from live captures against a real account — not a published schema. Endpoints with no confirmed shape (e.g. `hrvSummaries`) stay untyped rather than guessed.
+  - `index.ts`: barrel re-exporting all three.
 - `src/tools.ts`: MCP tool definitions (all read-only).
 - `src/fit.ts`: unzips the original activity file and decodes FIT with `@garmin/fitsdk`, returning the decoded messages as-is, paged (`get_activity_fit`).
 - `src/compact.ts`: trims long arrays from Garmin responses. Given a `ref` (source tool + its args), a trimmed array carries that ref plus its JSON path so `get_timeseries` can refetch and page through it directly.

@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { compact, type CompactRef } from "./compact.js";
 import { decodeFitMessages } from "./fit.js";
-import { GarminApiError, type GarminClient } from "./garmin.js";
+import { GarminApi, GarminApiError, type GarminClient } from "./garmin/index.js";
 
 const date = z
   .string()
@@ -130,6 +130,7 @@ export function summarizeActivity(a: unknown): unknown {
 }
 
 export function buildServer(garmin: GarminClient): McpServer {
+  const api = new GarminApi(garmin);
   const server = new McpServer(
     { name: "garmin-connector", version: "0.1.0" },
     {
@@ -153,7 +154,7 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     ({ date, include_timeseries }) =>
       run(async () => {
-        const data = await garmin.dailySleep(date);
+        const data = await api.dailySleep(date);
         return include_timeseries ? data : compact(data, { ref: { source: "sleep", args: { date } } });
       }),
   );
@@ -175,7 +176,7 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     ({ start_date, end_date, start, limit, include_timeseries }) =>
       run(async () =>
-        paginate(await garmin.sleepSummaries(start_date, end_date), { start, limit }, include_timeseries, (item) => {
+        paginate(await api.sleepSummaries(start_date, end_date), { start, limit }, include_timeseries, (item) => {
           const calendarDate = calendarDateOf(item);
           return calendarDate ? { source: "sleep", args: { date: calendarDate } } : undefined;
         }),
@@ -200,7 +201,7 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     ({ start_date, end_date, start, limit, include_timeseries }) =>
       run(async () =>
-        paginate(await garmin.dailySummaries(start_date, end_date), { start, limit }, include_timeseries, (item) => {
+        paginate(await api.dailySummaries(start_date, end_date), { start, limit }, include_timeseries, (item) => {
           const calendarDate = calendarDateOf(item);
           return calendarDate ? { source: "daily_summaries", args: { date: calendarDate } } : undefined;
         }),
@@ -225,7 +226,7 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     ({ start_date, end_date, start, limit, include_timeseries }) =>
       run(async () =>
-        paginate(await garmin.hrvSummaries(start_date, end_date), { start, limit }, include_timeseries),
+        paginate(await api.hrvSummaries(start_date, end_date), { start, limit }, include_timeseries),
       ),
   );
 
@@ -247,7 +248,7 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     ({ start_date, end_date, start, limit, include_timeseries }) =>
       run(async () =>
-        paginate(await garmin.bodyBattery(start_date, end_date), { start, limit }, include_timeseries, (item) => {
+        paginate(await api.bodyBattery(start_date, end_date), { start, limit }, include_timeseries, (item) => {
           // Body Battery items key by `date`, not `calendarDate` like the other range endpoints.
           const d = (item as { date?: unknown } | null)?.date;
           return typeof d === "string" ? { source: "body_battery", args: { date: d } } : undefined;
@@ -274,15 +275,14 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     (args) =>
       run(async () => {
-        const data = await garmin.searchActivities({
+        const data = await api.searchActivities({
           start: args.start,
           limit: args.limit,
           startDate: args.start_date,
           endDate: args.end_date,
           activityType: args.activity_type,
         });
-        if (args.raw || !Array.isArray(data)) return data;
-        return data.map(summarizeActivity);
+        return args.raw ? data : data.map(summarizeActivity);
       }),
   );
 
@@ -294,7 +294,7 @@ export function buildServer(garmin: GarminClient): McpServer {
       inputSchema: { activity_id: z.string().regex(/^[1-9]\d*$/).describe("From list_activities") },
       annotations: { readOnlyHint: true },
     },
-    ({ activity_id }) => run(async () => garmin.activity(activity_id)),
+    ({ activity_id }) => run(async () => api.activity(activity_id)),
   );
 
   server.registerTool(
@@ -369,19 +369,19 @@ export function buildServer(garmin: GarminClient): McpServer {
         let root: unknown;
         switch (ref.source) {
           case "sleep":
-            root = await garmin.dailySleep(refDate());
+            root = await api.dailySleep(refDate());
             break;
           case "body_battery": {
             const d = refDate();
-            const days = (await garmin.bodyBattery(d, d)) as unknown[];
-            root = Array.isArray(days) ? days.find((x) => (x as { date?: unknown } | null)?.date === d) : undefined;
+            const days = await api.bodyBattery(d, d);
+            root = days.find((x) => x.date === d);
             if (!root) throw new Error(`No Body Battery data for ${d}`);
             break;
           }
           case "daily_summaries": {
             const d = refDate();
-            const days = await garmin.dailySummaries(d, d);
-            root = days.find((x) => calendarDateOf(x) === d);
+            const days = await api.dailySummaries(d, d);
+            root = days.find((x) => x.calendarDate === d);
             if (!root) throw new Error(`No daily summary for ${d}`);
             break;
           }
