@@ -29,7 +29,7 @@ Nested per-minute arrays (sleep movement, a day's Body Battery levels, whatever 
 3. Copy the key now; it's shown only once. Treat it like a password.
 
 ### 2. Deploy the Worker
-You need a free [Cloudflare account](https://dash.cloudflare.com/sign-up) and Node 20+.
+You need a free [Cloudflare account](https://dash.cloudflare.com/sign-up) and Node 26+ (matches CI).
 
 ```sh
 git clone https://github.com/gausnes/garmin-connector && cd garmin-connector
