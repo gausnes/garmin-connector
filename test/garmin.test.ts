@@ -173,7 +173,7 @@ describe("get_timeseries", () => {
     return JSON.parse(body.result.content[0]!.text) as Record<string, unknown>;
   }
 
-  it("get_sleep has no confirmed long-array field, so a surprise long array gets no ref", async () => {
+  it("get_sleep has no confirmed long-array field, so even a long array passes through untouched", async () => {
     mockToken("k");
     const sleepLevels = Array.from({ length: 50 }, (_, i) => ({ level: i }));
     nock(DEFAULT_BASE_URL)
@@ -183,10 +183,7 @@ describe("get_timeseries", () => {
 
     const client = new GarminClient({ apiKey: "k" });
     const sleep = await callTool(client, "get_sleep", { date: "2026-10-30" });
-    const stub = sleep.sleepLevels as { omitted_items: number; ref?: unknown; hint: string };
-    expect(stub.omitted_items).toBe(50);
-    expect(stub.ref).toBeUndefined();
-    expect(stub.hint).toMatch(/include_timeseries=true/);
+    expect(sleep.sleepLevels).toEqual(sleepLevels);
   });
 
   it("pages through one day's array omitted by get_body_battery, keyed by `date` not calendarDate", async () => {

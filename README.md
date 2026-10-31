@@ -18,7 +18,7 @@ An [MCP](https://modelcontextprotocol.io) connector that gives Claude read-only 
 | `get_activity_fit` | The FIT file's decoded messages as-is (records, laps, sessions, events, HRV, devices), with counts per type and offset/limit paging |
 | `get_timeseries` | Pages through a day's Body Battery curve, using the `ref` get_body_battery attaches when that array is too long to return inline |
 
-A day's per-minute Body Battery levels are summarized by default, with a `ref` attached so `get_timeseries` can page through just that array without dumping everything. Pass `include_timeseries: true` instead to get the whole response in full. Other large arrays (e.g. sleep movement, if Garmin ever returns one not yet confirmed/typed here) are summarized the same way but without a `ref` — call again with `include_timeseries: true` for those. Date-range tools (`get_sleep_range`, `get_daily_summaries`, `get_hrv`, `get_body_battery`) also return a page at a time, newest-first; pass `start`/`limit` to page further back.
+A day's per-minute Body Battery levels are summarized by default, with a `ref` attached so `get_timeseries` can page through just that array without dumping everything. Pass `include_timeseries: true` instead to get the whole response in full. Date-range tools (`get_sleep_range`, `get_daily_summaries`, `get_hrv`, `get_body_battery`) also return a page at a time, newest-first; pass `start`/`limit` to page further back.
 
 ## Setup (about 15 minutes, all free)
 

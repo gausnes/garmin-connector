@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import worker, { authorize, safeEqual, type Env } from "../src/index.js";
-import { compact } from "../src/compact.js";
+import { stripNullish } from "../src/responses/index.js";
 
 const SECRET = "s".repeat(40);
 const env: Env = { GARMIN_API_KEY: "key-123", MCP_PATH_SECRET: SECRET };
@@ -33,22 +33,16 @@ describe("auth", () => {
   });
 });
 
-describe("compact", () => {
-  it("summarizes long arrays and drops nulls", () => {
-    const out = compact({ a: null, levels: Array.from({ length: 100 }, (_, i) => i), score: 80 }) as Record<
-      string,
-      unknown
-    >;
-    expect(out.a).toBeUndefined();
-    expect(out.score).toBe(80);
-    expect((out.levels as { omitted_items: number }).omitted_items).toBe(100);
-  });
-
-  it("summarizes long arrays nested inside objects too", () => {
-    const out = compact({ nested: { levels: Array.from({ length: 50 }, (_, i) => i) } }) as {
-      nested: { levels: { omitted_items: number } };
-    };
-    expect(out.nested.levels.omitted_items).toBe(50);
+describe("stripNullish", () => {
+  it("drops null and undefined fields, recursively, without touching arrays' contents", () => {
+    const out = stripNullish({
+      a: null,
+      b: undefined,
+      nested: { c: null, d: 1 },
+      levels: [1, null, 2],
+      score: 80,
+    });
+    expect(out).toEqual({ nested: { d: 1 }, levels: [1, null, 2], score: 80 });
   });
 });
 

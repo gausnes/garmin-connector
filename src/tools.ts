@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { compact } from "./compact.js";
 import { decodeFitMessages } from "./fit.js";
 import { type BodyBatteryDay, GarminApi, type GarminClient } from "./garmin/index.js";
 import {
@@ -8,9 +7,10 @@ import {
   paginate,
   resolveBodyBatteryValues,
   run,
+  stripNullish,
   summarizeActivity,
   summarizeBodyBatteryDay,
-} from "./response.js";
+} from "./responses/index.js";
 
 const date = z
   .string()
@@ -57,7 +57,7 @@ export function buildServer(garmin: GarminClient): McpServer {
     ({ date, include_timeseries }) =>
       run(async () => {
         const data = await api.dailySleep(date);
-        return include_timeseries ? data : compact(data);
+        return include_timeseries ? data : stripNullish(data);
       }),
   );
 
