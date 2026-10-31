@@ -9,17 +9,17 @@ An [MCP](https://modelcontextprotocol.io) connector that gives Claude read-only 
 | Tool | What it returns |
 |---|---|
 | `get_sleep` | One night: duration, stages, sleep score, overnight HRV, resting HR (date = morning you woke up) |
-| `get_sleep_range` | One sleep summary per night (max 31 days) |
-| `get_daily_summaries` | Steps, calories, stress, Body Battery, resting HR per day (up to 1 year) |
-| `get_hrv` | HRV status and baseline per day |
-| `get_body_battery` | Daily Body Battery reports (max 31 days) |
+| `get_sleep_range` | One sleep summary per night (max 31 days), paged newest-first |
+| `get_daily_summaries` | Steps, calories, stress, Body Battery, resting HR per day (up to 1 year), paged newest-first |
+| `get_hrv` | HRV status and baseline per day, paged newest-first |
+| `get_body_battery` | Daily Body Battery reports (max 31 days), paged newest-first |
 | `list_activities` | Recent activities with type, duration, distance, elevation, HR |
 | `get_activity` | Garmin's full summary for one activity |
-| `analyze_activity` | Downloads the FIT file → per-minute elevation, distance, speed, HR (and cadence/power), plus climb phases: lift-like (>40 m/min), self-powered, descent, flat |
 | `get_activity_fit` | The FIT file's decoded messages as-is (records, laps, sessions, events, HRV, devices), with counts per type and offset/limit paging |
 | `garmin_get` | Raw GET for any other Personal API path |
+| `get_timeseries` | Pages through one long array that `get_sleep` or `garmin_get` omitted, using the `ref` in their response |
 
-Long per-minute arrays are summarized by default to save context. Pass `include_timeseries: true` to get them in full.
+Per-minute arrays inside a single result (e.g. a night's sleep movement, or whatever `garmin_get` returns) are summarized by default, with a `ref` attached so `get_timeseries` can page through just that array without dumping everything. Pass `include_timeseries: true` instead to get the whole response in full. Date-range tools (`get_sleep_range`, `get_daily_summaries`, `get_hrv`, `get_body_battery`) return a page at a time, newest-first; pass `start`/`limit` to page further back.
 
 ## Setup (about 15 minutes, all free)
 

@@ -73,24 +73,3 @@ export function resortDay(laps = 3): SynthPoint[] {
   }
   return pts;
 }
-
-/** Splitboard tour: 90 min skin up 700 m at high HR, 15 min ride down. */
-export function splitboardTour(): SynthPoint[] {
-  const pts: SynthPoint[] = [];
-  let sec = 0;
-  let alt = 3000;
-  let dist = 0;
-  for (let i = 0; i < 90 * 6; i++) {
-    sec += 10;
-    alt += 700 / 540;
-    dist += 6;
-    pts.push({ sec, alt, dist, hr: 150, speed: 0.6 });
-  }
-  for (let i = 0; i < 15 * 6; i++) {
-    sec += 10;
-    alt -= 700 / 90;
-    dist += 50;
-    pts.push({ sec, alt, dist, hr: 140, speed: 5 });
-  }
-  return pts;
-}

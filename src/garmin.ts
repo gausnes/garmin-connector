@@ -39,6 +39,16 @@ export function resetTokenCache(): void {
   tokenCache = undefined;
 }
 
+/** Downloaded activity files, keyed by activity ID. Bounded so paging through get_activity_fit for one
+ *  activity doesn't redownload the (immutable, often multi-MB) file on every call within an isolate. */
+const MAX_CACHED_ACTIVITIES = 3;
+const activityCache = new Map<string, Uint8Array>();
+
+/** Test hook. */
+export function resetActivityCache(): void {
+  activityCache.clear();
+}
+
 export function jwtExpiration(token: string): number {
   const part = token.split(".")[1];
   if (!part) throw new GarminApiError("Token endpoint did not return a JWT");
@@ -68,14 +78,14 @@ export interface GarminClientOptions {
 
 export class GarminClient {
   private readonly apiKey: string;
-  private readonly baseUrl: string;
+  private readonly baseUrl: URL;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
 
   constructor(opts: GarminClientOptions) {
     if (!opts.apiKey) throw new GarminApiError("GARMIN_API_KEY is not configured");
     this.apiKey = opts.apiKey;
-    this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = new URL(opts.baseUrl ?? DEFAULT_BASE_URL);
     const rawFetch = opts.fetchImpl ?? fetch.bind(globalThis);
     this.fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
       try {
@@ -89,7 +99,7 @@ export class GarminClient {
   }
 
   private async token(forceRefresh = false): Promise<string> {
-    const fp = await fingerprint(`${this.baseUrl}\0${this.apiKey}`);
+    const fp = await fingerprint(`${this.baseUrl.origin}\0${this.apiKey}`);
     const nowSec = this.now() / 1000;
     if (
       !forceRefresh &&
@@ -99,7 +109,7 @@ export class GarminClient {
     ) {
       return tokenCache.accessToken;
     }
-    const res = await this.fetchImpl(`${this.baseUrl}${TOKEN_PATH}`, {
+    const res = await this.fetchImpl(new URL(TOKEN_PATH, this.baseUrl), {
       method: "POST",
       headers: { Accept: "*/*", Authorization: `ApiKey ${this.apiKey}` },
     });
@@ -116,10 +126,14 @@ export class GarminClient {
   }
 
   private async request(path: string, accept: string): Promise<Response> {
-    if (!path.startsWith("/") || path.startsWith("//") || /[\s]/.test(path)) {
+    if (!path.startsWith("/") || /\s/.test(path)) {
       throw new GarminApiError(`Invalid API path: ${path}`);
     }
-    const url = `${this.baseUrl}${path}`;
+    // A path starting with "//" is protocol-relative and would resolve against a different host.
+    const url = new URL(path, this.baseUrl);
+    if (url.origin !== this.baseUrl.origin) {
+      throw new GarminApiError(`Invalid API path: ${path}`);
+    }
     const doFetch = async (token: string) =>
       this.fetchImpl(url, { headers: { Accept: accept, Authorization: `Bearer ${token}` } });
 
@@ -147,15 +161,23 @@ export class GarminClient {
     }
   }
 
-  /** Download the original activity file (Garmin returns a ZIP). */
+  /** Download the original activity file (Garmin returns a ZIP). Cached per isolate: paging through
+   *  get_activity_fit for one activity makes several calls that would otherwise redownload it each time. */
   async downloadActivity(activityId: string): Promise<Uint8Array> {
     assertActivityId(activityId);
+    const cached = activityCache.get(activityId);
+    if (cached) return cached;
     const res = await this.request(
       `/download-service/files/activity/${activityId}`,
       "application/zip, application/x-zip-compressed, application/octet-stream",
     );
     const buf = new Uint8Array(await res.arrayBuffer());
     if (buf.length === 0) throw new GarminApiError("Activity download was empty");
+    if (activityCache.size >= MAX_CACHED_ACTIVITIES) {
+      const oldest = activityCache.keys().next().value;
+      if (oldest !== undefined) activityCache.delete(oldest);
+    }
+    activityCache.set(activityId, buf);
     return buf;
   }
 
@@ -206,10 +228,9 @@ export function assertActivityId(id: string): void {
 
 export function withQuery(path: string, params?: Record<string, string | number | undefined>): string {
   if (!params) return path;
-  const qs = new URLSearchParams();
+  const url = new URL(path, "http://x");
   for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== "") qs.set(k, String(v));
+    if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
   }
-  const s = qs.toString();
-  return s ? `${path}${path.includes("?") ? "&" : "?"}${s}` : path;
+  return url.pathname + url.search;
 }

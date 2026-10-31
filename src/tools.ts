@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { compact } from "./compact.js";
-import { analyzeActivityFile, decodeFitMessages, LIFT_CLIMB_RATE_M_PER_MIN } from "./fit.js";
+import { decodeFitMessages } from "./fit.js";
 import { GarminApiError, type GarminClient } from "./garmin.js";
 
 const date = z
@@ -13,6 +13,48 @@ const includeTimeseries = z
   .boolean()
   .optional()
   .describe("Include long per-minute arrays (large). Default false.");
+
+const pageStart = z.number().int().min(0).optional().describe("Offset for paging. Default 0");
+const pageLimit = z.number().int().min(1).max(100).optional().describe("Max items per page. Default 20");
+
+interface Page {
+  total: number;
+  start: number;
+  limit: number;
+  items: unknown[];
+}
+
+/** Page a date-range array newest-first. Items are compacted individually unless `full` is set. */
+function paginate(data: unknown, opts: { start?: number; limit?: number }, full = false): unknown {
+  if (!Array.isArray(data)) return full ? data : compact(data);
+  const items = [...data].reverse();
+  const start = Math.max(0, Math.floor(opts.start ?? 0));
+  const limit = Math.min(100, Math.max(1, Math.floor(opts.limit ?? 20)));
+  const page: Page = {
+    total: items.length,
+    start,
+    limit,
+    items: items.slice(start, start + limit).map((item) => (full ? item : compact(item))),
+  };
+  return page;
+}
+
+const timeseriesRef = z.object({
+  source: z.enum(["sleep", "garmin_get"]),
+  args: z.record(z.string(), z.union([z.string(), z.number()])),
+  path: z.array(z.union([z.string(), z.number()])),
+});
+
+function walkPath(root: unknown, path: (string | number)[]): unknown {
+  let node = root;
+  for (const key of path) {
+    if (node === null || typeof node !== "object") {
+      throw new Error(`ref.path not found at "${key}"`);
+    }
+    node = Array.isArray(node) ? node[key as number] : (node as Record<string, unknown>)[key as string];
+  }
+  return node;
+}
 
 /** FIT messages can carry 64-bit fields that the SDK decodes as BigInt, which JSON can't encode. */
 function jsonSafe(_key: string, v: unknown): unknown {
@@ -76,8 +118,7 @@ export function buildServer(garmin: GarminClient): McpServer {
         "Read-only access to the user's own Garmin Connect data via Garmin's official Personal API. " +
         "Dates are the user's local calendar dates (YYYY-MM-DD). Sleep for a night is filed under the " +
         "date the user woke up. Garmin caps ranges: sleep and Body Battery 31 days, daily summaries 1 year. " +
-        "To tell similar activities apart (resort snowboarding vs splitboarding, mountain vs road biking), " +
-        "call analyze_activity and compare its climb phases, speeds and heart rate.",
+        "Date-range tools page newest-first; raise `start` to go further back.",
     },
   );
 
@@ -94,7 +135,7 @@ export function buildServer(garmin: GarminClient): McpServer {
     ({ date, include_timeseries }) =>
       run(async () => {
         const data = await garmin.dailySleep(date);
-        return include_timeseries ? data : compact(data);
+        return include_timeseries ? data : compact(data, { ref: { source: "sleep", args: { date } } });
       }),
   );
 
@@ -102,11 +143,21 @@ export function buildServer(garmin: GarminClient): McpServer {
     "get_sleep_range",
     {
       title: "Sleep summaries over a date range",
-      description: "One sleep summary per night for an inclusive range (max 31 days).",
-      inputSchema: { start_date: date, end_date: date },
+      description:
+        "One sleep summary per night for an inclusive range (max 31 days), paged newest-first.",
+      inputSchema: {
+        start_date: date,
+        end_date: date,
+        start: pageStart,
+        limit: pageLimit,
+        include_timeseries: includeTimeseries,
+      },
       annotations: { readOnlyHint: true },
     },
-    ({ start_date, end_date }) => run(async () => compact(await garmin.sleepSummaries(start_date, end_date))),
+    ({ start_date, end_date, start, limit, include_timeseries }) =>
+      run(async () =>
+        paginate(await garmin.sleepSummaries(start_date, end_date), { start, limit }, include_timeseries),
+      ),
   );
 
   server.registerTool(
@@ -115,37 +166,64 @@ export function buildServer(garmin: GarminClient): McpServer {
       title: "Daily health summaries",
       description:
         "Per-day summaries: steps, calories, intensity minutes, resting HR, stress, Body Battery, etc. " +
-        "Inclusive range, up to 1 year.",
-      inputSchema: { start_date: date, end_date: date },
+        "Inclusive range, up to 1 year, paged newest-first.",
+      inputSchema: {
+        start_date: date,
+        end_date: date,
+        start: pageStart,
+        limit: pageLimit,
+        include_timeseries: includeTimeseries,
+      },
       annotations: { readOnlyHint: true },
     },
-    ({ start_date, end_date }) => run(async () => compact(await garmin.dailySummaries(start_date, end_date))),
+    ({ start_date, end_date, start, limit, include_timeseries }) =>
+      run(async () =>
+        paginate(await garmin.dailySummaries(start_date, end_date), { start, limit }, include_timeseries),
+      ),
   );
 
   server.registerTool(
     "get_hrv",
     {
       title: "HRV summaries",
-      description: "Overnight heart rate variability summaries (weekly average, status, baseline) per day.",
-      inputSchema: { start_date: date, end_date: date },
+      description:
+        "Overnight heart rate variability summaries (weekly average, status, baseline) per day, " +
+        "paged newest-first.",
+      inputSchema: {
+        start_date: date,
+        end_date: date,
+        start: pageStart,
+        limit: pageLimit,
+        include_timeseries: includeTimeseries,
+      },
       annotations: { readOnlyHint: true },
     },
-    ({ start_date, end_date }) => run(async () => compact(await garmin.hrvSummaries(start_date, end_date))),
+    ({ start_date, end_date, start, limit, include_timeseries }) =>
+      run(async () =>
+        paginate(await garmin.hrvSummaries(start_date, end_date), { start, limit }, include_timeseries),
+      ),
   );
 
   server.registerTool(
     "get_body_battery",
     {
       title: "Body Battery",
-      description: "Daily Body Battery reports (charged, drained, highs/lows). Inclusive range, max 31 days.",
-      inputSchema: { start_date: date, end_date: date, include_timeseries: includeTimeseries },
+      description:
+        "Daily Body Battery reports (charged, drained, highs/lows). Inclusive range, max 31 days, " +
+        "paged newest-first.",
+      inputSchema: {
+        start_date: date,
+        end_date: date,
+        start: pageStart,
+        limit: pageLimit,
+        include_timeseries: includeTimeseries,
+      },
       annotations: { readOnlyHint: true },
     },
-    ({ start_date, end_date, include_timeseries }) =>
-      run(async () => {
-        const data = await garmin.bodyBattery(start_date, end_date);
-        return include_timeseries ? data : compact(data);
-      }),
+    ({ start_date, end_date, start, limit, include_timeseries }) =>
+      run(async () =>
+        paginate(await garmin.bodyBattery(start_date, end_date), { start, limit }, include_timeseries),
+      ),
   );
 
   server.registerTool(
@@ -174,7 +252,7 @@ export function buildServer(garmin: GarminClient): McpServer {
           endDate: args.end_date,
           activityType: args.activity_type,
         });
-        if (args.raw || !Array.isArray(data)) return compact(data);
+        if (args.raw || !Array.isArray(data)) return data;
         return data.map(summarizeActivity);
       }),
   );
@@ -187,32 +265,7 @@ export function buildServer(garmin: GarminClient): McpServer {
       inputSchema: { activity_id: z.string().regex(/^[1-9]\d*$/).describe("From list_activities") },
       annotations: { readOnlyHint: true },
     },
-    ({ activity_id }) => run(async () => compact(await garmin.activity(activity_id))),
-  );
-
-  server.registerTool(
-    "analyze_activity",
-    {
-      title: "Analyze an activity's recorded data",
-      description:
-        "Downloads the original FIT file and returns a per-minute series (elevation, elevation change, " +
-        "distance, speed, heart rate, cadence, power) plus phase totals: climbing faster than " +
-        `${LIFT_CLIMB_RATE_M_PER_MIN} m/min (lift/vehicle-like), self-powered climbing, descending, flat. ` +
-        "Resort riding shows lift-like climbs with low heart rate; splitboarding/ski touring shows long " +
-        "self-powered climbs with elevated heart rate. Mountain biking shows high climb per km, lower " +
-        "moving speed and higher heart-rate variability than road riding.",
-      inputSchema: {
-        activity_id: z.string().regex(/^[1-9]\d*$/).describe("From list_activities"),
-        interval_minutes: z.number().int().min(1).max(60).optional().describe("Bucket size. Default 1"),
-        include_series: z.boolean().optional().describe("Include the per-interval series. Default true"),
-      },
-      annotations: { readOnlyHint: true },
-    },
-    ({ activity_id, interval_minutes, include_series }) =>
-      run(async () => {
-        const file = await garmin.downloadActivity(activity_id);
-        return analyzeActivityFile(file, { intervalMinutes: interval_minutes, includeSeries: include_series });
-      }),
+    ({ activity_id }) => run(async () => garmin.activity(activity_id)),
   );
 
   server.registerTool(
@@ -224,7 +277,7 @@ export function buildServer(garmin: GarminClient): McpServer {
         "reads them (record, lap, session, event, device_info, hrv, etc.), with no interpretation. " +
         "Every call reports `counts` per message type. Each returned type is sliced to " +
         "[offset, offset + limit); page through long types such as recordMesgs (one row per second " +
-        "or so) by raising offset. Use analyze_activity for a compact per-minute summary instead.",
+        "or so) by raising offset.",
       inputSchema: {
         activity_id: z.string().regex(/^[1-9]\d*$/).describe("From list_activities"),
         message_types: z
@@ -259,7 +312,45 @@ export function buildServer(garmin: GarminClient): McpServer {
     ({ path, include_timeseries }) =>
       run(async () => {
         const data = await garmin.getJson(path);
-        return include_timeseries ? data : compact(data);
+        return include_timeseries
+          ? data
+          : compact(data, { ref: { source: "garmin_get", args: { api_path: path } } });
+      }),
+  );
+
+  server.registerTool(
+    "get_timeseries",
+    {
+      title: "Page through one omitted array",
+      description:
+        "Follows a `ref` from a truncated array (returned by get_sleep or garmin_get when a long " +
+        "nested array is omitted) and returns one page of just that array, refetching the source and " +
+        "walking `ref.path` to it. Use this instead of include_timeseries=true when only one series " +
+        "is needed, not the whole response.",
+      inputSchema: { ref: timeseriesRef, start: pageStart, limit: pageLimit },
+      annotations: { readOnlyHint: true },
+    },
+    ({ ref, start, limit }) =>
+      run(async () => {
+        let root: unknown;
+        if (ref.source === "sleep") {
+          const argDate = ref.args.date;
+          if (typeof argDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(argDate)) {
+            throw new Error("ref.args.date must be YYYY-MM-DD");
+          }
+          root = await garmin.dailySleep(argDate);
+        } else {
+          const apiPath = ref.args.api_path;
+          if (typeof apiPath !== "string" || !/^\/[A-Za-z0-9\-_/.?=&%]*$/.test(apiPath)) {
+            throw new Error("ref.args.api_path is not a valid Garmin API path");
+          }
+          root = await garmin.getJson(apiPath);
+        }
+        const node = walkPath(root, ref.path);
+        if (!Array.isArray(node)) throw new Error(`ref.path does not point to an array: ${ref.path.join(".")}`);
+        const s = Math.max(0, Math.floor(start ?? 0));
+        const l = Math.min(500, Math.max(1, Math.floor(limit ?? 200)));
+        return { total: node.length, start: s, limit: l, items: node.slice(s, s + l) };
       }),
   );
 

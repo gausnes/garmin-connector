@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import worker, { authorize, safeEqual, type Env } from "../src/index.js";
-import { GarminClient, jwtExpiration, resetTokenCache, TOKEN_PATH } from "../src/garmin.js";
+import { GarminClient, jwtExpiration, resetActivityCache, resetTokenCache, TOKEN_PATH } from "../src/garmin.js";
 import { compact } from "../src/compact.js";
+import { buildServer } from "../src/tools.js";
 
 const SECRET = "s".repeat(40);
 const env: Env = { GARMIN_API_KEY: "key-123", MCP_PATH_SECRET: SECRET };
@@ -40,7 +42,10 @@ describe("auth", () => {
 });
 
 describe("GarminClient", () => {
-  beforeEach(() => resetTokenCache());
+  beforeEach(() => {
+    resetTokenCache();
+    resetActivityCache();
+  });
 
   it("exchanges the API key once and reuses the bearer token", async () => {
     const calls: { url: string; auth: string | null }[] = [];
@@ -108,6 +113,24 @@ describe("GarminClient", () => {
   it("reads the JWT exp claim", () => {
     expect(jwtExpiration(jwt(1234))).toBe(1234);
   });
+
+  it("caches a downloaded activity file across calls, per isolate", async () => {
+    let downloads = 0;
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith(TOKEN_PATH)) return new Response(jwt(Date.now() / 1000 + 86400));
+      downloads++;
+      return new Response(new Uint8Array([1, 2, 3]));
+    }) as typeof fetch;
+    const c = new GarminClient({ apiKey: "k", fetchImpl });
+
+    await c.downloadActivity("123");
+    await c.downloadActivity("123");
+    expect(downloads).toBe(1);
+
+    await c.downloadActivity("456");
+    expect(downloads).toBe(2);
+  });
 });
 
 describe("compact", () => {
@@ -119,6 +142,63 @@ describe("compact", () => {
     expect(out.a).toBeUndefined();
     expect(out.score).toBe(80);
     expect((out.levels as { omitted_items: number }).omitted_items).toBe(100);
+  });
+
+  it("attaches a get_timeseries ref with the array's path, when given one", () => {
+    const out = compact(
+      { nested: { levels: Array.from({ length: 50 }, (_, i) => i) } },
+      { ref: { source: "sleep", args: { date: "2026-10-30" } } },
+    ) as { nested: { levels: { ref: unknown; omitted_items: number } } };
+    expect(out.nested.levels.omitted_items).toBe(50);
+    expect(out.nested.levels.ref).toEqual({
+      source: "sleep",
+      args: { date: "2026-10-30" },
+      path: ["nested", "levels"],
+    });
+  });
+});
+
+describe("get_timeseries", () => {
+  // Mirrors src/index.ts: a fresh server + transport per request (stateless, no shared session).
+  async function send(client: GarminClient, body: object) {
+    const server = buildServer(client);
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    await server.connect(transport);
+    return transport.handleRequest(
+      new Request("https://w/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  async function callTool(client: GarminClient, name: string, args: object) {
+    await send(client, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } },
+    });
+    const res = await send(client, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } });
+    const body = (await res.json()) as { result: { content: { text: string }[]; isError?: boolean } };
+    return JSON.parse(body.result.content[0]!.text) as Record<string, unknown>;
+  }
+
+  it("pages through an array that get_sleep omitted, via its ref", async () => {
+    const sleepLevels = Array.from({ length: 50 }, (_, i) => ({ level: i }));
+    const client = { dailySleep: async () => ({ sleepLevels }) } as unknown as GarminClient;
+
+    const sleep = await callTool(client, "get_sleep", { date: "2026-10-30" });
+    const stub = sleep.sleepLevels as { omitted_items: number; ref: unknown };
+    expect(stub.omitted_items).toBe(50);
+    expect(stub.ref).toEqual({ source: "sleep", args: { date: "2026-10-30" }, path: ["sleepLevels"] });
+
+    const page = await callTool(client, "get_timeseries", { ref: stub.ref, start: 10, limit: 5 });
+    expect(page).toEqual({ total: 50, start: 10, limit: 5, items: sleepLevels.slice(10, 15) });
   });
 });
 
@@ -144,7 +224,6 @@ describe("MCP endpoint", () => {
     const body = (await list.json()) as { result: { tools: { name: string }[] } };
     expect(body.result.tools.map((t) => t.name).sort()).toEqual(
       [
-        "analyze_activity",
         "garmin_get",
         "get_activity",
         "get_activity_fit",
@@ -153,6 +232,7 @@ describe("MCP endpoint", () => {
         "get_hrv",
         "get_sleep",
         "get_sleep_range",
+        "get_timeseries",
         "list_activities",
       ].sort(),
     );
