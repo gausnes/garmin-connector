@@ -173,23 +173,20 @@ describe("get_timeseries", () => {
     return JSON.parse(body.result.content[0]!.text) as Record<string, unknown>;
   }
 
-  it("pages through an array that get_sleep omitted, via its ref", async () => {
-    mockToken("k"); // one exchange, cached for the second (get_timeseries) call
+  it("get_sleep has no confirmed long-array field, so a surprise long array gets no ref", async () => {
+    mockToken("k");
     const sleepLevels = Array.from({ length: 50 }, (_, i) => ({ level: i }));
     nock(DEFAULT_BASE_URL)
       .get("/sleep-service/sleep/dailySleep")
       .query({ date: "2026-10-30" })
-      .twice()
       .reply(200, dailySleepFixture("2026-10-30", { sleepLevels }));
 
     const client = new GarminClient({ apiKey: "k" });
     const sleep = await callTool(client, "get_sleep", { date: "2026-10-30" });
-    const stub = sleep.sleepLevels as { omitted_items: number; ref: unknown };
+    const stub = sleep.sleepLevels as { omitted_items: number; ref?: unknown; hint: string };
     expect(stub.omitted_items).toBe(50);
-    expect(stub.ref).toEqual({ source: "sleep", args: { date: "2026-10-30" }, path: ["sleepLevels"] });
-
-    const page = await callTool(client, "get_timeseries", { ref: stub.ref, start: 10, limit: 5 });
-    expect(page).toEqual({ total: 50, start: 10, limit: 5, items: sleepLevels.slice(10, 15) });
+    expect(stub.ref).toBeUndefined();
+    expect(stub.hint).toMatch(/include_timeseries=true/);
   });
 
   it("pages through one day's array omitted by get_body_battery, keyed by `date` not calendarDate", async () => {
@@ -209,7 +206,7 @@ describe("get_timeseries", () => {
     const items = (page as { items: { bodyBatteryValuesArray: { omitted_items: number; ref: unknown } }[] }).items;
     const stub = items[0]!.bodyBatteryValuesArray; // newest-first, so 10-29 is items[0]
     expect(stub.omitted_items).toBe(40);
-    expect(stub.ref).toEqual({ source: "body_battery", args: { date: "2026-10-29" }, path: ["bodyBatteryValuesArray"] });
+    expect(stub.ref).toEqual({ source: "body_battery", date: "2026-10-29" });
 
     const series = await callTool(client, "get_timeseries", { ref: stub.ref });
     expect(series).toEqual({ total: 40, start: 0, limit: 200, items: bodyBatteryValuesArray });

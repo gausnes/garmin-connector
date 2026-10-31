@@ -2,8 +2,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { compact } from "./compact.js";
 import { decodeFitMessages } from "./fit.js";
-import { GarminApi, type GarminClient } from "./garmin/index.js";
-import { calendarDateOf, paginate, resolveTimeseriesRef, run, summarizeActivity, walkPath } from "./response.js";
+import { type BodyBatteryDay, GarminApi, type GarminClient } from "./garmin/index.js";
+import {
+  pageArray,
+  paginate,
+  resolveBodyBatteryValues,
+  run,
+  summarizeActivity,
+  summarizeBodyBatteryDay,
+} from "./response.js";
 
 const date = z
   .string()
@@ -18,11 +25,11 @@ const includeTimeseries = z
 const pageStart = z.number().int().min(0).optional().describe("Offset for paging. Default 0");
 const pageLimit = z.number().int().min(1).max(100).optional().describe("Max items per page. Default 20");
 
-const timeseriesRef = z.object({
-  source: z.enum(["sleep", "garmin_get", "body_battery", "daily_summaries"]),
-  args: z.record(z.string(), z.union([z.string(), z.number()])),
-  path: z.array(z.union([z.string(), z.number()])),
+const bodyBatteryRef = z.object({
+  source: z.literal("body_battery"),
+  date,
 });
+const seriesLimit = z.number().int().min(1).max(500).optional().describe("Max readings per page. Default 200");
 
 export function buildServer(garmin: GarminClient): McpServer {
   const api = new GarminApi(garmin);
@@ -50,7 +57,7 @@ export function buildServer(garmin: GarminClient): McpServer {
     ({ date, include_timeseries }) =>
       run(async () => {
         const data = await api.dailySleep(date);
-        return include_timeseries ? data : compact(data, { ref: { source: "sleep", args: { date } } });
+        return include_timeseries ? data : compact(data);
       }),
   );
 
@@ -70,12 +77,7 @@ export function buildServer(garmin: GarminClient): McpServer {
       annotations: { readOnlyHint: true },
     },
     ({ start_date, end_date, start, limit, include_timeseries }) =>
-      run(async () =>
-        paginate(await api.sleepSummaries(start_date, end_date), { start, limit }, include_timeseries, (item) => {
-          const calendarDate = calendarDateOf(item);
-          return calendarDate ? { source: "sleep", args: { date: calendarDate } } : undefined;
-        }),
-      ),
+      run(async () => paginate(await api.sleepSummaries(start_date, end_date), { start, limit }, include_timeseries)),
   );
 
   server.registerTool(
@@ -95,12 +97,7 @@ export function buildServer(garmin: GarminClient): McpServer {
       annotations: { readOnlyHint: true },
     },
     ({ start_date, end_date, start, limit, include_timeseries }) =>
-      run(async () =>
-        paginate(await api.dailySummaries(start_date, end_date), { start, limit }, include_timeseries, (item) => {
-          const calendarDate = calendarDateOf(item);
-          return calendarDate ? { source: "daily_summaries", args: { date: calendarDate } } : undefined;
-        }),
-      ),
+      run(async () => paginate(await api.dailySummaries(start_date, end_date), { start, limit }, include_timeseries)),
   );
 
   server.registerTool(
@@ -143,11 +140,12 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     ({ start_date, end_date, start, limit, include_timeseries }) =>
       run(async () =>
-        paginate(await api.bodyBattery(start_date, end_date), { start, limit }, include_timeseries, (item) => {
-          // Body Battery items key by `date`, not `calendarDate` like the other range endpoints.
-          const d = (item as { date?: unknown } | null)?.date;
-          return typeof d === "string" ? { source: "body_battery", args: { date: d } } : undefined;
-        }),
+        paginate(
+          await api.bodyBattery(start_date, end_date),
+          { start, limit },
+          include_timeseries,
+          (item) => summarizeBodyBatteryDay(item as BodyBatteryDay),
+        ),
       ),
   );
 
@@ -226,48 +224,17 @@ export function buildServer(garmin: GarminClient): McpServer {
   );
 
   server.registerTool(
-    "garmin_get",
-    {
-      title: "Raw Personal API GET",
-      description:
-        "Escape hatch: GET any Garmin Personal API path, e.g. /hrv-service/hrv/2026-10-30 or " +
-        "/usersummary-service/stats/steps/daily/2026-10-01/2026-10-28. Read-only.",
-      inputSchema: {
-        path: z.string().regex(/^\/[A-Za-z0-9\-_/.?=&%]*$/).describe("Path starting with /, query string allowed"),
-        include_timeseries: includeTimeseries,
-      },
-      annotations: { readOnlyHint: true },
-    },
-    ({ path, include_timeseries }) =>
-      run(async () => {
-        const data = await garmin.getJson(path);
-        return include_timeseries
-          ? data
-          : compact(data, { ref: { source: "garmin_get", args: { api_path: path } } });
-      }),
-  );
-
-  server.registerTool(
     "get_timeseries",
     {
-      title: "Page through one omitted array",
+      title: "Page through a day's Body Battery curve",
       description:
-        "Follows a `ref` from a truncated array (returned by get_sleep, get_sleep_range, " +
-        "get_daily_summaries, get_body_battery or garmin_get when a long nested array is omitted) and " +
-        "returns one page of just that array, refetching the source and walking `ref.path` to it. Use " +
-        "this instead of include_timeseries=true when only one series is needed, not the whole response.",
-      inputSchema: { ref: timeseriesRef, start: pageStart, limit: pageLimit },
+        "Follows the `ref` attached by get_body_battery when a day's `bodyBatteryValuesArray` is too " +
+        "long to return inline, and returns one page of just that array. Use this instead of " +
+        "include_timeseries=true when only the Body Battery curve is needed, not the whole response.",
+      inputSchema: { ref: bodyBatteryRef, start: pageStart, limit: seriesLimit },
       annotations: { readOnlyHint: true },
     },
-    ({ ref, start, limit }) =>
-      run(async () => {
-        const root = await resolveTimeseriesRef(garmin, api, ref);
-        const node = walkPath(root, ref.path);
-        if (!Array.isArray(node)) throw new Error(`ref.path does not point to an array: ${ref.path.join(".")}`);
-        const s = Math.max(0, Math.floor(start ?? 0));
-        const l = Math.min(500, Math.max(1, Math.floor(limit ?? 200)));
-        return { total: node.length, start: s, limit: l, items: node.slice(s, s + l) };
-      }),
+    ({ ref, start, limit }) => run(async () => pageArray(await resolveBodyBatteryValues(api, ref), start, limit)),
   );
 
   return server;

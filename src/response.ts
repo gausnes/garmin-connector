@@ -1,10 +1,11 @@
 /**
  * Response modeling shared by the MCP tool handlers in tools.ts: paging date-range arrays,
- * summarizing activities, resolving a get_timeseries ref back to its source array, and wrapping
- * handler results/errors into MCP content. Builds on compact.ts's array-truncation/ref handling.
+ * summarizing activities and Body Battery days, resolving a get_timeseries ref back to its source
+ * array, and wrapping handler results/errors into MCP content. Builds on compact.ts's
+ * array-truncation handling.
  */
-import { compact, stripNullish, type CompactRef } from "./compact.js";
-import { GarminApiError, type GarminApi, type GarminClient } from "./garmin/index.js";
+import { compact, stripNullish } from "./compact.js";
+import { GarminApiError, type BodyBatteryDay, type GarminApi } from "./garmin/index.js";
 
 export interface Page {
   total: number;
@@ -13,16 +14,12 @@ export interface Page {
   items: unknown[];
 }
 
-/**
- * Page a date-range array newest-first. Items are compacted individually unless `full` is set.
- * `itemRef`, when given, builds the get_timeseries ref for one item (e.g. from its date field) so a
- * long array inside that item can be paged on its own instead of requiring `full`/include_timeseries.
- */
+/** Page a date-range array newest-first. Items are compacted individually unless `full` is set. */
 export function paginate(
   data: unknown,
   opts: { start?: number; limit?: number },
   full = false,
-  itemRef?: (item: unknown) => CompactRef | undefined,
+  summarizeItem: (item: unknown) => unknown = (item) => compact(item),
 ): unknown {
   if (!Array.isArray(data)) return full ? data : compact(data);
   const items = [...data].reverse();
@@ -32,76 +29,54 @@ export function paginate(
     total: items.length,
     start,
     limit,
-    items: items
-      .slice(start, start + limit)
-      .map((item) => (full ? item : compact(item, { ref: itemRef?.(item) }))),
+    items: items.slice(start, start + limit).map((item) => (full ? item : summarizeItem(item))),
   };
   return page;
 }
 
-/** `item.calendarDate`, if that's what it is — the key `sleepSummaries`/`dailySummaries` items use. */
-export function calendarDateOf(item: unknown): string | undefined {
-  const d = (item as { calendarDate?: unknown } | null)?.calendarDate;
-  return typeof d === "string" ? d : undefined;
+/**
+ * Body Battery is the only range endpoint with a confirmed long-array field
+ * (`bodyBatteryValuesArray`), so it's the only one with a typed get_timeseries ref — strongly typed
+ * to that one known field rather than a generic JSON path into an otherwise-unconfirmed shape.
+ */
+export interface BodyBatteryRef {
+  source: "body_battery";
+  date: string;
 }
 
-export function walkPath(root: unknown, path: (string | number)[]): unknown {
-  let node = root;
-  for (const key of path) {
-    if (node === null || typeof node !== "object") {
-      throw new Error(`ref.path not found at "${key}"`);
-    }
-    node = Array.isArray(node) ? node[key as number] : (node as Record<string, unknown>)[key as string];
-  }
-  return node;
+const MAX_INLINE_VALUES = 32;
+
+export function summarizeBodyBatteryDay(day: BodyBatteryDay): unknown {
+  const { bodyBatteryValuesArray: values, ...rest } = day;
+  const clean = stripNullish(rest) as Record<string, unknown>;
+  if (values.length <= MAX_INLINE_VALUES) return { ...clean, bodyBatteryValuesArray: values };
+  return {
+    ...clean,
+    bodyBatteryValuesArray: {
+      omitted_items: values.length,
+      sample_first: values[0],
+      sample_last: values[values.length - 1],
+      ref: { source: "body_battery", date: day.date } satisfies BodyBatteryRef,
+      hint: "Long time series omitted. Call get_timeseries with this ref to page through it, or include_timeseries=true to get everything at once.",
+    },
+  };
 }
 
-export interface TimeseriesRef {
-  source: "sleep" | "garmin_get" | "body_battery" | "daily_summaries";
-  args: Record<string, string | number>;
-  path: (string | number)[];
-}
-
-const isoDate = /^\d{4}-\d{2}-\d{2}$/;
-const garminPath = /^\/[A-Za-z0-9\-_/.?=&%]*$/;
-
-function refDate(ref: TimeseriesRef): string {
-  const d = ref.args.date;
-  if (typeof d !== "string" || !isoDate.test(d)) throw new Error("ref.args.date must be YYYY-MM-DD");
-  return d;
-}
-
-/** Refetches the array a get_timeseries ref points into, so `walkPath` can page through it. */
-export async function resolveTimeseriesRef(
-  garmin: GarminClient,
+/** Refetches the day a get_timeseries ref points to, so its full value array can be paged. */
+export async function resolveBodyBatteryValues(
   api: GarminApi,
-  ref: TimeseriesRef,
-): Promise<unknown> {
-  switch (ref.source) {
-    case "sleep":
-      return api.dailySleep(refDate(ref));
-    case "body_battery": {
-      const d = refDate(ref);
-      const days = await api.bodyBattery(d, d);
-      const day = days.find((x) => x.date === d);
-      if (!day) throw new Error(`No Body Battery data for ${d}`);
-      return day;
-    }
-    case "daily_summaries": {
-      const d = refDate(ref);
-      const days = await api.dailySummaries(d, d);
-      const day = days.find((x) => x.calendarDate === d);
-      if (!day) throw new Error(`No daily summary for ${d}`);
-      return day;
-    }
-    case "garmin_get": {
-      const apiPath = ref.args.api_path;
-      if (typeof apiPath !== "string" || !garminPath.test(apiPath)) {
-        throw new Error("ref.args.api_path is not a valid Garmin API path");
-      }
-      return garmin.getJson(apiPath);
-    }
-  }
+  ref: BodyBatteryRef,
+): Promise<[number, number | null][]> {
+  const days = await api.bodyBattery(ref.date, ref.date);
+  const day = days.find((d) => d.date === ref.date);
+  if (!day) throw new Error(`No Body Battery data for ${ref.date}`);
+  return day.bodyBatteryValuesArray;
+}
+
+export function pageArray<T>(items: T[], start: number | undefined, limit: number | undefined): Page {
+  const s = Math.max(0, Math.floor(start ?? 0));
+  const l = Math.min(500, Math.max(1, Math.floor(limit ?? 200)));
+  return { total: items.length, start: s, limit: l, items: items.slice(s, s + l) };
 }
 
 const ACTIVITY_FIELDS = [

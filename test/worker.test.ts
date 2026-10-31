@@ -44,17 +44,11 @@ describe("compact", () => {
     expect((out.levels as { omitted_items: number }).omitted_items).toBe(100);
   });
 
-  it("attaches a get_timeseries ref with the array's path, when given one", () => {
-    const out = compact(
-      { nested: { levels: Array.from({ length: 50 }, (_, i) => i) } },
-      { ref: { source: "sleep", args: { date: "2026-10-30" } } },
-    ) as { nested: { levels: { ref: unknown; omitted_items: number } } };
+  it("summarizes long arrays nested inside objects too", () => {
+    const out = compact({ nested: { levels: Array.from({ length: 50 }, (_, i) => i) } }) as {
+      nested: { levels: { omitted_items: number } };
+    };
     expect(out.nested.levels.omitted_items).toBe(50);
-    expect(out.nested.levels.ref).toEqual({
-      source: "sleep",
-      args: { date: "2026-10-30" },
-      path: ["nested", "levels"],
-    });
   });
 });
 
@@ -80,7 +74,6 @@ describe("MCP endpoint", () => {
     const body = (await list.json()) as { result: { tools: { name: string }[] } };
     expect(body.result.tools.map((t) => t.name).sort()).toEqual(
       [
-        "garmin_get",
         "get_activity",
         "get_activity_fit",
         "get_body_battery",
