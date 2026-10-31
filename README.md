@@ -17,9 +17,9 @@ An [MCP](https://modelcontextprotocol.io) connector that gives Claude read-only 
 | `get_activity` | Garmin's full summary for one activity |
 | `get_activity_fit` | The FIT file's decoded messages as-is (records, laps, sessions, events, HRV, devices), with counts per type and offset/limit paging |
 | `garmin_get` | Raw GET for any other Personal API path |
-| `get_timeseries` | Pages through one long array that `get_sleep` or `garmin_get` omitted, using the `ref` in their response |
+| `get_timeseries` | Pages through one long array omitted elsewhere (e.g. a night's sleep data, one day's Body Battery curve, or whatever `garmin_get` returns), using the `ref` attached to it |
 
-Per-minute arrays inside a single result (e.g. a night's sleep movement, or whatever `garmin_get` returns) are summarized by default, with a `ref` attached so `get_timeseries` can page through just that array without dumping everything. Pass `include_timeseries: true` instead to get the whole response in full. Date-range tools (`get_sleep_range`, `get_daily_summaries`, `get_hrv`, `get_body_battery`) return a page at a time, newest-first; pass `start`/`limit` to page further back.
+Nested per-minute arrays (sleep movement, a day's Body Battery levels, whatever `garmin_get` returns) are summarized by default, with a `ref` attached so `get_timeseries` can page through just that array without dumping everything. Pass `include_timeseries: true` instead to get the whole response in full — `get_hrv` only supports the latter for now. Date-range tools (`get_sleep_range`, `get_daily_summaries`, `get_hrv`, `get_body_battery`) also return a page at a time, newest-first; pass `start`/`limit` to page further back.
 
 ## Setup (about 15 minutes, all free)
 

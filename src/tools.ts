@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { compact } from "./compact.js";
+import { compact, type CompactRef } from "./compact.js";
 import { decodeFitMessages } from "./fit.js";
 import { GarminApiError, type GarminClient } from "./garmin.js";
 
@@ -24,8 +24,17 @@ interface Page {
   items: unknown[];
 }
 
-/** Page a date-range array newest-first. Items are compacted individually unless `full` is set. */
-function paginate(data: unknown, opts: { start?: number; limit?: number }, full = false): unknown {
+/**
+ * Page a date-range array newest-first. Items are compacted individually unless `full` is set.
+ * `itemRef`, when given, builds the get_timeseries ref for one item (e.g. from its date field) so a
+ * long array inside that item can be paged on its own instead of requiring `full`/include_timeseries.
+ */
+function paginate(
+  data: unknown,
+  opts: { start?: number; limit?: number },
+  full = false,
+  itemRef?: (item: unknown) => CompactRef | undefined,
+): unknown {
   if (!Array.isArray(data)) return full ? data : compact(data);
   const items = [...data].reverse();
   const start = Math.max(0, Math.floor(opts.start ?? 0));
@@ -34,16 +43,26 @@ function paginate(data: unknown, opts: { start?: number; limit?: number }, full 
     total: items.length,
     start,
     limit,
-    items: items.slice(start, start + limit).map((item) => (full ? item : compact(item))),
+    items: items
+      .slice(start, start + limit)
+      .map((item) => (full ? item : compact(item, { ref: itemRef?.(item) }))),
   };
   return page;
 }
 
+/** `item.calendarDate`, if that's what it is — the key `sleepSummaries`/`dailySummaries` items use. */
+function calendarDateOf(item: unknown): string | undefined {
+  const d = (item as { calendarDate?: unknown } | null)?.calendarDate;
+  return typeof d === "string" ? d : undefined;
+}
+
 const timeseriesRef = z.object({
-  source: z.enum(["sleep", "garmin_get"]),
+  source: z.enum(["sleep", "garmin_get", "body_battery", "daily_summaries"]),
   args: z.record(z.string(), z.union([z.string(), z.number()])),
   path: z.array(z.union([z.string(), z.number()])),
 });
+
+const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
 function walkPath(root: unknown, path: (string | number)[]): unknown {
   let node = root;
@@ -156,7 +175,10 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     ({ start_date, end_date, start, limit, include_timeseries }) =>
       run(async () =>
-        paginate(await garmin.sleepSummaries(start_date, end_date), { start, limit }, include_timeseries),
+        paginate(await garmin.sleepSummaries(start_date, end_date), { start, limit }, include_timeseries, (item) => {
+          const calendarDate = calendarDateOf(item);
+          return calendarDate ? { source: "sleep", args: { date: calendarDate } } : undefined;
+        }),
       ),
   );
 
@@ -178,7 +200,10 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     ({ start_date, end_date, start, limit, include_timeseries }) =>
       run(async () =>
-        paginate(await garmin.dailySummaries(start_date, end_date), { start, limit }, include_timeseries),
+        paginate(await garmin.dailySummaries(start_date, end_date), { start, limit }, include_timeseries, (item) => {
+          const calendarDate = calendarDateOf(item);
+          return calendarDate ? { source: "daily_summaries", args: { date: calendarDate } } : undefined;
+        }),
       ),
   );
 
@@ -222,7 +247,11 @@ export function buildServer(garmin: GarminClient): McpServer {
     },
     ({ start_date, end_date, start, limit, include_timeseries }) =>
       run(async () =>
-        paginate(await garmin.bodyBattery(start_date, end_date), { start, limit }, include_timeseries),
+        paginate(await garmin.bodyBattery(start_date, end_date), { start, limit }, include_timeseries, (item) => {
+          // Body Battery items key by `date`, not `calendarDate` like the other range endpoints.
+          const d = (item as { date?: unknown } | null)?.date;
+          return typeof d === "string" ? { source: "body_battery", args: { date: d } } : undefined;
+        }),
       ),
   );
 
@@ -323,28 +352,47 @@ export function buildServer(garmin: GarminClient): McpServer {
     {
       title: "Page through one omitted array",
       description:
-        "Follows a `ref` from a truncated array (returned by get_sleep or garmin_get when a long " +
-        "nested array is omitted) and returns one page of just that array, refetching the source and " +
-        "walking `ref.path` to it. Use this instead of include_timeseries=true when only one series " +
-        "is needed, not the whole response.",
+        "Follows a `ref` from a truncated array (returned by get_sleep, get_sleep_range, " +
+        "get_daily_summaries, get_body_battery or garmin_get when a long nested array is omitted) and " +
+        "returns one page of just that array, refetching the source and walking `ref.path` to it. Use " +
+        "this instead of include_timeseries=true when only one series is needed, not the whole response.",
       inputSchema: { ref: timeseriesRef, start: pageStart, limit: pageLimit },
       annotations: { readOnlyHint: true },
     },
     ({ ref, start, limit }) =>
       run(async () => {
+        const refDate = (): string => {
+          const d = ref.args.date;
+          if (typeof d !== "string" || !isoDate.test(d)) throw new Error("ref.args.date must be YYYY-MM-DD");
+          return d;
+        };
         let root: unknown;
-        if (ref.source === "sleep") {
-          const argDate = ref.args.date;
-          if (typeof argDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(argDate)) {
-            throw new Error("ref.args.date must be YYYY-MM-DD");
+        switch (ref.source) {
+          case "sleep":
+            root = await garmin.dailySleep(refDate());
+            break;
+          case "body_battery": {
+            const d = refDate();
+            const days = (await garmin.bodyBattery(d, d)) as unknown[];
+            root = Array.isArray(days) ? days.find((x) => (x as { date?: unknown } | null)?.date === d) : undefined;
+            if (!root) throw new Error(`No Body Battery data for ${d}`);
+            break;
           }
-          root = await garmin.dailySleep(argDate);
-        } else {
-          const apiPath = ref.args.api_path;
-          if (typeof apiPath !== "string" || !/^\/[A-Za-z0-9\-_/.?=&%]*$/.test(apiPath)) {
-            throw new Error("ref.args.api_path is not a valid Garmin API path");
+          case "daily_summaries": {
+            const d = refDate();
+            const days = await garmin.dailySummaries(d, d);
+            root = days.find((x) => calendarDateOf(x) === d);
+            if (!root) throw new Error(`No daily summary for ${d}`);
+            break;
           }
-          root = await garmin.getJson(apiPath);
+          case "garmin_get": {
+            const apiPath = ref.args.api_path;
+            if (typeof apiPath !== "string" || !/^\/[A-Za-z0-9\-_/.?=&%]*$/.test(apiPath)) {
+              throw new Error("ref.args.api_path is not a valid Garmin API path");
+            }
+            root = await garmin.getJson(apiPath);
+            break;
+          }
         }
         const node = walkPath(root, ref.path);
         if (!Array.isArray(node)) throw new Error(`ref.path does not point to an array: ${ref.path.join(".")}`);

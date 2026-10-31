@@ -189,8 +189,12 @@ export class GarminClient {
   sleepSummaries(startDate: string, endDate: string) {
     return this.getJson("/sleep-service/sleep/dailySleepSummariesByDate", { startDate, endDate });
   }
-  dailySummaries(startDate: string, endDate: string) {
-    return this.getJson("/usersummary-service/v2/dailysummaries", { startDate, endDate });
+  /** Unlike the other range endpoints, Garmin wraps this one as `{ data: [...] }`. */
+  async dailySummaries(startDate: string, endDate: string): Promise<unknown[]> {
+    const res = (await this.getJson("/usersummary-service/v2/dailysummaries", { startDate, endDate })) as {
+      data?: unknown;
+    } | null;
+    return Array.isArray(res?.data) ? res.data : [];
   }
   hrvSummaries(startDate: string, endDate: string) {
     return this.getJson(`/hrv-service/hrv/daily/${startDate}/${endDate}`);

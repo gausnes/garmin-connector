@@ -15,4 +15,4 @@ Cloudflare Worker serving a stateless MCP server (Streamable HTTP, JSON response
 - Endpoint paths must match Garmin's reference client (github.com/garmin/connect-personal-api-python, `README.md` endpoint table).
 - Run `npm run check` (tsc + vitest + wrangler dry-run) before committing.
 - Date-range tools page results newest-first (`start`/`limit`); don't let `compact()` silently truncate a whole page.
-- Single-object tools that can contain large nested arrays (`get_sleep`, `garmin_get`) pass a `ref` into `compact()` so `get_timeseries` can page into one array instead of requiring `include_timeseries=true` to dump everything.
+- Tools whose response (or each paged item) can contain large nested arrays (`get_sleep`, `get_sleep_range`, `get_daily_summaries`, `get_body_battery`, `garmin_get`) pass a `ref` into `compact()` so `get_timeseries` can page into one array instead of requiring `include_timeseries=true` to dump everything. `get_hrv` doesn't yet — its real response shape (field names) hasn't been confirmed against a live account.

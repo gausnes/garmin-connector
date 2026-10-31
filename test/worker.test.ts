@@ -102,6 +102,19 @@ describe("GarminClient", () => {
     await expect(c.getJson("//evil.example/x")).rejects.toThrow(/Invalid API path/);
   });
 
+  it("unwraps dailySummaries' { data: [...] } envelope", async () => {
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith(TOKEN_PATH)) return new Response(jwt(Date.now() / 1000 + 86400));
+      if (url.includes("dailysummaries")) return Response.json({ data: [{ calendarDate: "2026-10-29" }] });
+      return Response.json({ unexpected: "shape" });
+    }) as typeof fetch;
+    const c = new GarminClient({ apiKey: "k", fetchImpl });
+    await expect(c.dailySummaries("2026-10-29", "2026-10-29")).resolves.toEqual([
+      { calendarDate: "2026-10-29" },
+    ]);
+  });
+
   it("explains network failures", async () => {
     const fetchImpl = (async () => {
       throw new TypeError("network down");
@@ -199,6 +212,26 @@ describe("get_timeseries", () => {
 
     const page = await callTool(client, "get_timeseries", { ref: stub.ref, start: 10, limit: 5 });
     expect(page).toEqual({ total: 50, start: 10, limit: 5, items: sleepLevels.slice(10, 15) });
+  });
+
+  it("pages through one day's array omitted by get_body_battery, keyed by `date` not calendarDate", async () => {
+    const bodyBatteryValuesArray = Array.from({ length: 40 }, (_, i) => [i, i]);
+    const days = [
+      { date: "2026-10-28", bodyBatteryValuesArray: [] },
+      { date: "2026-10-29", bodyBatteryValuesArray },
+    ];
+    const client = {
+      bodyBattery: async (start: string, end: string) => days.filter((d) => d.date >= start && d.date <= end),
+    } as unknown as GarminClient;
+
+    const page = await callTool(client, "get_body_battery", { start_date: "2026-10-28", end_date: "2026-10-29" });
+    const items = (page as { items: { bodyBatteryValuesArray: { omitted_items: number; ref: unknown } }[] }).items;
+    const stub = items[0]!.bodyBatteryValuesArray; // newest-first, so 10-29 is items[0]
+    expect(stub.omitted_items).toBe(40);
+    expect(stub.ref).toEqual({ source: "body_battery", args: { date: "2026-10-29" }, path: ["bodyBatteryValuesArray"] });
+
+    const series = await callTool(client, "get_timeseries", { ref: stub.ref });
+    expect(series).toEqual({ total: 40, start: 0, limit: 200, items: bodyBatteryValuesArray });
   });
 });
 
