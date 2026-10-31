@@ -4,7 +4,7 @@ import worker, { authorize, safeEqual, type Env } from "../src/index.ts";
 import { bigIntSafe, ok } from "../src/responses/index.ts";
 
 const SECRET = "s".repeat(40);
-const env: Env = { GARMIN_API_KEY: "key-123", MCP_PATH_SECRET: SECRET };
+const env: Env = { GARMIN_API_KEY: "key-123", MCP_ACCESS_KEY: SECRET };
 
 describe("auth", () => {
   it("compares in constant time correctly", () => {
@@ -13,24 +13,31 @@ describe("auth", () => {
     assert.strictEqual(safeEqual("abc", "abcd"), false);
   });
 
-  it("accepts the secret in the path or as a bearer token", () => {
-    assert.strictEqual(authorize(new Request(`https://w/mcp/${SECRET}`), env).ok, true);
+  it("accepts the secret only as an access-key header", () => {
+    assert.strictEqual(authorize(new Request("https://w/mcp", { headers: { "access-key": SECRET } }), env).ok, true);
+    assert.strictEqual(authorize(new Request(`https://w/mcp/${SECRET}`), env).ok, false);
     assert.strictEqual(
       authorize(new Request("https://w/mcp", { headers: { Authorization: `Bearer ${SECRET}` } }), env).ok,
-      true,
+      false,
     );
-    assert.strictEqual(authorize(new Request("https://w/mcp/wrong"), env).ok, false);
     assert.strictEqual(authorize(new Request("https://w/mcp"), env).ok, false);
+    assert.strictEqual(
+      authorize(new Request("https://w/mcp", { headers: { "access-key": "wrong" } }), env).ok,
+      false,
+    );
   });
 
   it("refuses to run with a weak secret", () => {
-    const r = authorize(new Request("https://w/mcp/short"), { ...env, MCP_PATH_SECRET: "short" });
+    const r = authorize(new Request("https://w/mcp", { headers: { "access-key": "short" } }), {
+      ...env,
+      MCP_ACCESS_KEY: "short",
+    });
     assert.strictEqual(r.ok, false);
     assert.match(r.reason!, /at least 32/);
   });
 
   it("returns 404 for unauthorized MCP requests", async () => {
-    const res = await worker.fetch(new Request("https://w/mcp/nope", { method: "POST" }), env);
+    const res = await worker.fetch(new Request("https://w/mcp", { method: "POST" }), env);
     assert.strictEqual(res.status, 404);
   });
 });
@@ -68,9 +75,13 @@ describe("bigIntSafe", () => {
 describe("MCP endpoint", () => {
   it("lists tools over streamable HTTP", async () => {
     const req = (body: object) =>
-      new Request(`https://w/mcp/${SECRET}`, {
+      new Request("https://w/mcp", {
         method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "access-key": SECRET,
+        },
         body: JSON.stringify(body),
       });
     const init = await worker.fetch(

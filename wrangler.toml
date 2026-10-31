@@ -5,7 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 # Secrets (never commit these; set with `npx wrangler secret put <NAME>`):
 #   GARMIN_API_KEY   - Garmin Connect personal API key
-#   MCP_PATH_SECRET  - long random string; endpoint is https://<worker>/mcp/<MCP_PATH_SECRET>
+#   MCP_ACCESS_KEY   - long random string; sent as the `access-key` header on /mcp
 
 [observability]
 enabled = true

@@ -5,8 +5,8 @@ import { buildServer } from "./tools.ts";
 export interface Env {
   /** Garmin Connect personal API key (wrangler secret). */
   GARMIN_API_KEY: string;
-  /** Long random string; the MCP endpoint lives at /mcp/<MCP_PATH_SECRET> (wrangler secret). */
-  MCP_PATH_SECRET: string;
+  /** Long random string; sent as the `access-key` header on /mcp (wrangler secret). */
+  MCP_ACCESS_KEY: string;
   /** Optional override, mainly for tests. */
   GARMIN_BASE_URL?: string;
 }
@@ -24,24 +24,20 @@ export function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Accept the secret either in the path (/mcp/<secret>, for claude.ai custom
- * connectors, which take a URL) or as a bearer token on /mcp (for clients that
- * can send headers, e.g. Claude Code).
+ * Accept the secret only as an `access-key` header on /mcp. claude.ai custom
+ * connectors reserve `Authorization` for OAuth, so a plain header is used
+ * instead of a bearer token or a path segment.
  */
 export function authorize(request: Request, env: Env): { ok: boolean; reason?: string } {
-  const secret = env.MCP_PATH_SECRET ?? "";
+  const secret = env.MCP_ACCESS_KEY ?? "";
   if (secret.length < MIN_SECRET_LENGTH) {
-    return { ok: false, reason: `MCP_PATH_SECRET must be set and at least ${MIN_SECRET_LENGTH} characters` };
+    return { ok: false, reason: `MCP_ACCESS_KEY must be set and at least ${MIN_SECRET_LENGTH} characters` };
   }
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
-  if (parts[0] !== "mcp") return { ok: false };
-  if (parts.length === 2 && safeEqual(parts[1]!, secret)) return { ok: true };
-  if (parts.length === 1) {
-    const auth = request.headers.get("Authorization") ?? "";
-    const m = /^Bearer\s+(.+)$/i.exec(auth);
-    if (m && safeEqual(m[1]!.trim(), secret)) return { ok: true };
-  }
+  if (parts.length !== 1 || parts[0] !== "mcp") return { ok: false };
+  const accessKey = request.headers.get("access-key");
+  if (accessKey && safeEqual(accessKey.trim(), secret)) return { ok: true };
   return { ok: false };
 }
 

@@ -1,3 +1,3 @@
 # Copy to .dev.vars for `npm run dev` (local only; .dev.vars is gitignored).
 GARMIN_API_KEY=your-garmin-personal-api-key
-MCP_PATH_SECRET=replace-with-output-of-openssl-rand-hex-32
+MCP_ACCESS_KEY=replace-with-output-of-openssl-rand-hex-32

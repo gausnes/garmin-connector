@@ -43,25 +43,25 @@ Note the URL it prints, e.g. `https://garmin-connector.<you>.workers.dev`.
 ```sh
 npx wrangler secret put GARMIN_API_KEY       # paste your Garmin key
 openssl rand -hex 32                         # generate a connector secret, copy it
-npx wrangler secret put MCP_PATH_SECRET      # paste that value
+npx wrangler secret put MCP_ACCESS_KEY       # paste that value
 ```
 (You can also add them in the Cloudflare dashboard under Workers & Pages → garmin-connector → Settings → Variables and Secrets.)
 
 ### 4. Add it to Claude
-In claude.ai, go to **Settings → Connectors → Add custom connector** and use this URL:
+In claude.ai, go to **Settings → Connectors → Add custom connector**, use this URL:
 
 ```
-https://garmin-connector.<you>.workers.dev/mcp/<MCP_PATH_SECRET>
+https://garmin-connector.<you>.workers.dev/mcp
 ```
 
-Leave the OAuth fields empty. The connector then shows up in Claude on every device.
+and add an HTTP header `access-key` set to your `MCP_ACCESS_KEY` value (`Authorization` is reserved there for OAuth). Leave the OAuth fields empty. The connector then shows up in Claude on every device.
 
-For Claude Code: `claude mcp add --transport http garmin https://garmin-connector.<you>.workers.dev/mcp --header "Authorization: Bearer <MCP_PATH_SECRET>"`
+For Claude Code: `claude mcp add --transport http garmin https://garmin-connector.<you>.workers.dev/mcp --header "access-key: <MCP_ACCESS_KEY>"`
 
 ## Security model
 
 - **Single user, read-only.** The Personal API can't write anything, and this Worker only reads your account.
-- **The connector secret is the password.** Anyone with the full URL can read your Garmin data. Don't share it. If it leaks, run `wrangler secret put MCP_PATH_SECRET` with a new value and update the connector URL in Claude. Wrong or missing secrets get a plain 404.
+- **The connector secret is the password.** Anyone with it can read your Garmin data. Don't share it. If it leaks, run `wrangler secret put MCP_ACCESS_KEY` with a new value and update the `access-key` header in Claude. Wrong or missing secrets get a plain 404.
 - **Your Garmin key never leaves Cloudflare's secret store.** It's never committed, logged or returned to Claude. Bearer tokens (24h) are cached in memory only.
 - When your Garmin key expires, create a new one and run `wrangler secret put GARMIN_API_KEY` again.
 
