@@ -35,6 +35,25 @@ export interface SleepSummary {
   highestRespirationValue: number | null;
   avgSleepStress: number | null;
   avgHeartRate: number | null;
+  // The following were always null across a 30-day sample on this account — types are a
+  // best-effort guess from field naming, not a confirmed non-null observation.
+  sleepQualityTypePK: number | null;
+  sleepResultTypePK: number | null;
+  sleepFromDevice: boolean | null;
+  numberOfEventsBelowThreshold: number | null;
+  averageSpO2HRSleep: number | null;
+  spo2Threshold: number | null;
+  awakeCount: number | null;
+  ageGroup: string | null;
+  sleepScorePersonalizedInsight: unknown | null;
+  userNote: string | null;
+  kidSleepNote: string | null;
+  sleepVersion: number | null;
+  sleepNeed: unknown | null;
+  nextSleepNeed: unknown | null;
+  dailyNapDTOS: unknown[] | null;
+  breathingDisruptionSeverity: string | null;
+  sleepAlignment: unknown | null;
 }
 
 export interface WellnessChronology {
@@ -56,6 +75,7 @@ export interface DailySummary {
   wellnessChronology: WellnessChronology;
   movement: {
     steps?: { goal: number; value: number; distanceInMeters: number };
+    pushes?: Record<string, unknown>;
     floorsAscended?: { goal: number; value: number; distanceInMeters: number };
     floorsDescended?: { value: number; distanceInMeters: number };
   };
@@ -65,10 +85,20 @@ export interface DailySummary {
   stress: {
     avgLevel: number;
     maxLevel: number;
+    restProportion: number;
+    activityProportion: number;
+    uncategorizedProportion: number;
+    lowStressProportion: number;
+    mediumStressProportion: number;
+    highStressProportion: number;
     qualifier: string;
     totalDurationInMillis: number;
     restDurationInMillis: number;
     activityDurationInMillis: number;
+    uncategorizedDurationInMillis: number;
+    lowStressDurationInMillis: number;
+    mediumStressDurationInMillis: number;
+    highStressDurationInMillis: number;
   };
   bodyBattery: {
     minValue: number;
@@ -76,7 +106,13 @@ export interface DailySummary {
     chargedValue: number;
     drainedValue: number;
     latestValue: number;
+    featureVersion: string;
   };
+  /** Seen only as `{}` so far on this account. */
+  hydration: Record<string, unknown>;
+  respiration: Record<string, unknown>;
+  pulseOx: Record<string, unknown>;
+  jetLag: Record<string, unknown>;
 }
 
 export interface BodyBatteryValueDescriptor {
@@ -84,18 +120,22 @@ export interface BodyBatteryValueDescriptor {
   bodyBatteryValueDescriptorKey: string;
 }
 
-/** One day from bodyBattery reports/daily. Keyed by `date`, not `calendarDate` like the others. */
+/**
+ * One day from bodyBattery reports/daily. Keyed by `date`, not `calendarDate` like the others.
+ * The most recent (still in-progress) day comes back with most fields `null` rather than omitted.
+ */
 export interface BodyBatteryDay {
   date: string;
-  charged: number;
-  drained: number;
-  startTimestampGMT: string;
-  endTimestampGMT: string;
-  startTimestampLocal: string;
-  endTimestampLocal: string;
-  /** Each entry is `[timestampOffsetMs, bodyBatteryLevel]` — see bodyBatteryValueDescriptorDTOList. */
-  bodyBatteryValuesArray: [number, number][];
-  bodyBatteryValueDescriptorDTOList: BodyBatteryValueDescriptor[];
+  charged: number | null;
+  drained: number | null;
+  startTimestampGMT: string | null;
+  endTimestampGMT: string | null;
+  startTimestampLocal: string | null;
+  endTimestampLocal: string | null;
+  /** Each entry is `[absoluteTimestampMs, bodyBatteryLevel]` — see bodyBatteryValueDescriptorDTOList.
+   *  The level can be `null` for the most recent, still-in-progress day. */
+  bodyBatteryValuesArray: [number, number | null][];
+  bodyBatteryValueDescriptorDTOList: BodyBatteryValueDescriptor[] | null;
 }
 
 export interface TypeRef {
@@ -160,6 +200,28 @@ export interface ActivitySummaryDTO {
   maxHR: number;
   minHR: number;
   steps: number;
+  // GPS-dependent — absent for indoor/manual activities.
+  startLatitude?: number;
+  startLongitude?: number;
+  endLatitude?: number;
+  endLongitude?: number;
+  avgElevation?: number;
+  averageMovingSpeed?: number;
+  bmrCalories?: number;
+  maxVerticalSpeed?: number;
+  minActivityLapDuration?: number;
+  // Sport-dependent — e.g. running cadence, outdoor temperature, yoga stress.
+  averageRunCadence?: number;
+  maxRunCadence?: number;
+  averageTemperature?: number;
+  maxTemperature?: number;
+  minTemperature?: number;
+  strideLength?: number;
+  startStress?: number;
+  endStress?: number;
+  differenceStress?: number;
+  avgStress?: number;
+  maxStress?: number;
 }
 
 /** From the activity endpoint (get_activity) — full detail for one activity. */
@@ -172,6 +234,7 @@ export interface ActivityDetail {
   activityTypeDTO: ActivityTypeRef;
   eventTypeDTO: TypeRef;
   accessControlRuleDTO: TypeRef;
+  timeZoneUnitDTO: { timeZone: string };
   metadataDTO: {
     isOriginal: boolean;
     fileFormat: { formatId: number; formatKey: string };
