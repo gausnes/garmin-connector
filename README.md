@@ -2,8 +2,6 @@
 
 An [MCP](https://modelcontextprotocol.io) connector that gives Claude read-only access to **your own** Garmin Connect data (sleep, HRV, Body Battery, daily summaries, activities and original FIT files) through Garmin's official [Connect Personal API](https://developer.garmin.com/gc-developer-program/personal/personal-api). It runs on a free Cloudflare Worker, so it works from Claude on the web, desktop and phone.
 
-Unlike the Apple Health route, it returns Garmin's own metrics (Sleep Score, Body Battery, HRV status), the activity type exactly as recorded, and per-minute data from the FIT file. That data is enough to tell a resort snowboard day from a splitboard tour, or a trail ride from a road ride.
-
 > Not affiliated with Garmin. Uses only Garmin's documented, read-only Personal API with a key you create for your own account.
 
 ## Tools
