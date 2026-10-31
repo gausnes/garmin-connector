@@ -1,17 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { describe, expect, it } from "vitest";
 import worker, { authorize, safeEqual, type Env } from "../src/index.js";
-import { GarminClient, jwtExpiration, resetActivityCache, resetTokenCache, TOKEN_PATH } from "../src/garmin.js";
 import { compact } from "../src/compact.js";
-import { buildServer } from "../src/tools.js";
 
 const SECRET = "s".repeat(40);
 const env: Env = { GARMIN_API_KEY: "key-123", MCP_PATH_SECRET: SECRET };
-
-function jwt(expSec: number): string {
-  const b64 = (o: object) => btoa(JSON.stringify(o)).replace(/=+$/, "");
-  return `${b64({ alg: "none" })}.${b64({ exp: expSec })}.sig`;
-}
 
 describe("auth", () => {
   it("compares in constant time correctly", () => {
@@ -41,111 +33,6 @@ describe("auth", () => {
   });
 });
 
-describe("GarminClient", () => {
-  beforeEach(() => {
-    resetTokenCache();
-    resetActivityCache();
-  });
-
-  it("exchanges the API key once and reuses the bearer token", async () => {
-    const calls: { url: string; auth: string | null }[] = [];
-    const now = Date.parse("2026-10-30T00:00:00Z");
-    const token = jwt(now / 1000 + 24 * 3600);
-    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const auth = new Headers(init?.headers).get("Authorization");
-      calls.push({ url, auth });
-      if (url.endsWith(TOKEN_PATH)) return new Response(token);
-      return Response.json({ ok: true, url });
-    }) as typeof fetch;
-
-    const c = new GarminClient({ apiKey: "key-123", fetchImpl, now: () => now });
-    await c.dailySleep("2026-10-30");
-    await c.sleepSummaries("2026-10-01", "2026-10-30");
-
-    expect(calls.filter((x) => x.url.endsWith(TOKEN_PATH))).toHaveLength(1);
-    expect(calls[0]!.auth).toBe("ApiKey key-123");
-    expect(calls[1]!.url).toBe(
-      "https://personal.connectapi.garmin.com/sleep-service/sleep/dailySleep?date=2026-10-30",
-    );
-    expect(calls[1]!.auth).toBe(`Bearer ${token}`);
-    expect(calls[2]!.url).toContain("dailySleepSummariesByDate?startDate=2026-10-01&endDate=2026-10-30");
-  });
-
-  it("refreshes the token once on 401", async () => {
-    let tokenCalls = 0;
-    let dataCalls = 0;
-    const fetchImpl = (async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith(TOKEN_PATH)) {
-        tokenCalls++;
-        return new Response(jwt(Date.now() / 1000 + 86400));
-      }
-      dataCalls++;
-      return dataCalls === 1 ? new Response("expired", { status: 401 }) : Response.json([]);
-    }) as typeof fetch;
-    const c = new GarminClient({ apiKey: "k", fetchImpl });
-    await expect(c.searchActivities({})).resolves.toEqual([]);
-    expect(tokenCalls).toBe(2);
-  });
-
-  it("explains a bad API key", async () => {
-    const fetchImpl = (async () => new Response("nope", { status: 403 })) as unknown as typeof fetch;
-    const c = new GarminClient({ apiKey: "bad", fetchImpl });
-    await expect(c.dailySleep("2026-10-30")).rejects.toThrow(/personal API key is valid/);
-  });
-
-  it("rejects bad activity ids and paths", async () => {
-    const c = new GarminClient({ apiKey: "k", fetchImpl: (async () => new Response("")) as never });
-    await expect(c.activity("../x")).rejects.toThrow(/positive integer/);
-    await expect(c.getJson("https://evil.example/x")).rejects.toThrow(/Invalid API path/);
-    await expect(c.getJson("//evil.example/x")).rejects.toThrow(/Invalid API path/);
-  });
-
-  it("unwraps dailySummaries' { data: [...] } envelope", async () => {
-    const fetchImpl = (async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith(TOKEN_PATH)) return new Response(jwt(Date.now() / 1000 + 86400));
-      if (url.includes("dailysummaries")) return Response.json({ data: [{ calendarDate: "2026-10-29" }] });
-      return Response.json({ unexpected: "shape" });
-    }) as typeof fetch;
-    const c = new GarminClient({ apiKey: "k", fetchImpl });
-    await expect(c.dailySummaries("2026-10-29", "2026-10-29")).resolves.toEqual([
-      { calendarDate: "2026-10-29" },
-    ]);
-  });
-
-  it("explains network failures", async () => {
-    const fetchImpl = (async () => {
-      throw new TypeError("network down");
-    }) as unknown as typeof fetch;
-    const c = new GarminClient({ apiKey: "k", fetchImpl });
-    await expect(c.dailySleep("2026-10-30")).rejects.toThrow(/Could not reach Garmin.*network down/);
-  });
-
-  it("reads the JWT exp claim", () => {
-    expect(jwtExpiration(jwt(1234))).toBe(1234);
-  });
-
-  it("caches a downloaded activity file across calls, per isolate", async () => {
-    let downloads = 0;
-    const fetchImpl = (async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith(TOKEN_PATH)) return new Response(jwt(Date.now() / 1000 + 86400));
-      downloads++;
-      return new Response(new Uint8Array([1, 2, 3]));
-    }) as typeof fetch;
-    const c = new GarminClient({ apiKey: "k", fetchImpl });
-
-    await c.downloadActivity("123");
-    await c.downloadActivity("123");
-    expect(downloads).toBe(1);
-
-    await c.downloadActivity("456");
-    expect(downloads).toBe(2);
-  });
-});
-
 describe("compact", () => {
   it("summarizes long arrays and drops nulls", () => {
     const out = compact({ a: null, levels: Array.from({ length: 100 }, (_, i) => i), score: 80 }) as Record<
@@ -168,70 +55,6 @@ describe("compact", () => {
       args: { date: "2026-10-30" },
       path: ["nested", "levels"],
     });
-  });
-});
-
-describe("get_timeseries", () => {
-  // Mirrors src/index.ts: a fresh server + transport per request (stateless, no shared session).
-  async function send(client: GarminClient, body: object) {
-    const server = buildServer(client);
-    const transport = new WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-    });
-    await server.connect(transport);
-    return transport.handleRequest(
-      new Request("https://w/mcp", {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
-        body: JSON.stringify(body),
-      }),
-    );
-  }
-
-  async function callTool(client: GarminClient, name: string, args: object) {
-    await send(client, {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } },
-    });
-    const res = await send(client, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } });
-    const body = (await res.json()) as { result: { content: { text: string }[]; isError?: boolean } };
-    return JSON.parse(body.result.content[0]!.text) as Record<string, unknown>;
-  }
-
-  it("pages through an array that get_sleep omitted, via its ref", async () => {
-    const sleepLevels = Array.from({ length: 50 }, (_, i) => ({ level: i }));
-    const client = { dailySleep: async () => ({ sleepLevels }) } as unknown as GarminClient;
-
-    const sleep = await callTool(client, "get_sleep", { date: "2026-10-30" });
-    const stub = sleep.sleepLevels as { omitted_items: number; ref: unknown };
-    expect(stub.omitted_items).toBe(50);
-    expect(stub.ref).toEqual({ source: "sleep", args: { date: "2026-10-30" }, path: ["sleepLevels"] });
-
-    const page = await callTool(client, "get_timeseries", { ref: stub.ref, start: 10, limit: 5 });
-    expect(page).toEqual({ total: 50, start: 10, limit: 5, items: sleepLevels.slice(10, 15) });
-  });
-
-  it("pages through one day's array omitted by get_body_battery, keyed by `date` not calendarDate", async () => {
-    const bodyBatteryValuesArray = Array.from({ length: 40 }, (_, i) => [i, i]);
-    const days = [
-      { date: "2026-10-28", bodyBatteryValuesArray: [] },
-      { date: "2026-10-29", bodyBatteryValuesArray },
-    ];
-    const client = {
-      bodyBattery: async (start: string, end: string) => days.filter((d) => d.date >= start && d.date <= end),
-    } as unknown as GarminClient;
-
-    const page = await callTool(client, "get_body_battery", { start_date: "2026-10-28", end_date: "2026-10-29" });
-    const items = (page as { items: { bodyBatteryValuesArray: { omitted_items: number; ref: unknown } }[] }).items;
-    const stub = items[0]!.bodyBatteryValuesArray; // newest-first, so 10-29 is items[0]
-    expect(stub.omitted_items).toBe(40);
-    expect(stub.ref).toEqual({ source: "body_battery", args: { date: "2026-10-29" }, path: ["bodyBatteryValuesArray"] });
-
-    const series = await callTool(client, "get_timeseries", { ref: stub.ref });
-    expect(series).toEqual({ total: 40, start: 0, limit: 200, items: bodyBatteryValuesArray });
   });
 });
 

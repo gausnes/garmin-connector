@@ -72,7 +72,6 @@ async function fingerprint(key: string): Promise<string> {
 export interface GarminClientOptions {
   apiKey: string;
   baseUrl?: string;
-  fetchImpl?: typeof fetch;
   now?: () => number; // ms since epoch
 }
 
@@ -86,12 +85,15 @@ export class GarminClient {
     if (!opts.apiKey) throw new GarminApiError("GARMIN_API_KEY is not configured");
     this.apiKey = opts.apiKey;
     this.baseUrl = new URL(opts.baseUrl ?? DEFAULT_BASE_URL);
-    const rawFetch = opts.fetchImpl ?? fetch.bind(globalThis);
+    const rawFetch = fetch.bind(globalThis);
     this.fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
       try {
         return await rawFetch(input, init);
       } catch (err) {
-        const why = err instanceof Error ? err.message : String(err);
+        // Native fetch() wraps the real reason (DNS, connection refused, etc.) in a generic
+        // "TypeError: fetch failed" and puts the actual cause in `.cause`, not `.message`.
+        const cause = err instanceof Error && err.cause instanceof Error ? err.cause : err;
+        const why = cause instanceof Error ? cause.message : String(cause);
         throw new GarminApiError(`Could not reach Garmin (${new URL(String(input)).host}): ${why}`);
       }
     }) as typeof fetch;
