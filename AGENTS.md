@@ -3,7 +3,7 @@
 Cloudflare Worker serving a stateless MCP server (Streamable HTTP, JSON responses) over Garmin's official Connect Personal API. Public repo, MIT.
 
 ## Layout
-- `src/index.ts`: Worker entry. Auth via `/mcp/<MCP_PATH_SECRET>` or `Authorization: Bearer` on `/mcp`. Builds a fresh MCP server per request.
+- `src/index.ts`: Worker entry. Auth via an `access-key` header on `/mcp` (not `Authorization`, which claude.ai custom connectors reserve for OAuth). Builds a fresh MCP server per request.
 - `src/garmin/`: the Garmin API client, split by concern.
   - `client.ts`: transport. API key → JWT bearer token (cached in isolate memory, refreshed within 1h of `exp`, retried once on 401). Downloaded activity files are also cached in isolate memory, since `get_activity_fit` pages through one activity with several calls.
   - `api.ts`: `GarminApi`, a typed per-endpoint layer over a `GarminClient` (paths from Garmin's reference client). Types are compile-time only, not runtime-validated, so array-returning methods still defensively fall back to `[]`.
@@ -14,7 +14,7 @@ Cloudflare Worker serving a stateless MCP server (Streamable HTTP, JSON response
 - `src/fit.ts`: unzips the original activity file and decodes FIT with `@garmin/fitsdk`, returning the decoded messages as-is, paged (`get_activity_fit`).
 
 ## Rules
-- Never commit secrets. `GARMIN_API_KEY` and `MCP_PATH_SECRET` live only in Cloudflare secrets and `.dev.vars` (gitignored).
+- Never commit secrets. `GARMIN_API_KEY` and `MCP_ACCESS_KEY` live only in Cloudflare secrets and `.dev.vars` (gitignored).
 - Keep it read-only and single-user.
 - Endpoint paths must match Garmin's reference client (github.com/garmin/connect-personal-api-python, `README.md` endpoint table).
 - Run `npm run check` (tsc + `node --test` + wrangler dry-run) before committing.
