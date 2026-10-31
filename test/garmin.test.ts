@@ -177,7 +177,9 @@ describe("get_body_battery_series", () => {
 
   async function callTool(client: GarminClient, name: string, args: object) {
     const result = await callToolRaw(client, name, args);
-    return JSON.parse(result.content[0]!.text) as Record<string, unknown>;
+    // Tools with an outputSchema return structuredContent and an empty content (spec-valid — see
+    // mcp-result.ts); others still rely on the text block.
+    return (result.structuredContent ?? JSON.parse(result.content[0]!.text)) as Record<string, unknown>;
   }
 
   it("get_sleep has no confirmed long-array field, so even a long array passes through untouched", async () => {
@@ -214,10 +216,12 @@ describe("get_body_battery_series", () => {
 
     const result = await callToolRaw(client, "get_body_battery_series", { ref: stub.ref });
     const expected = { total: 40, start: 0, limit: 200, items: bodyBatteryValuesArray };
-    expect(JSON.parse(result.content[0]!.text)).toEqual(expected);
-    // Also confirms the SDK's own server-side validation of structuredContent against our
-    // outputSchema actually passes — a schema mismatch here would come back as an McpError instead
-    // of a normal tool result, which result.isError/content wouldn't even get this far to assert on.
+    // content is spec-valid-empty for outputSchema tools (see mcp-result.ts) — structuredContent is
+    // the only representation now. Its presence/shape also confirms the SDK's own server-side
+    // validation against our outputSchema passed — a mismatch would come back as an McpError
+    // instead of a normal tool result, which result.isError/content wouldn't even get this far to
+    // assert on.
+    expect(result.content).toEqual([]);
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toEqual(expected);
   });

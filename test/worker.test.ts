@@ -49,6 +49,12 @@ describe("ok", () => {
     expect(ok({ a: 1 })).not.toHaveProperty("structuredContent");
     expect(ok({ a: 1 }, true).structuredContent).toEqual({ a: 1 });
   });
+
+  it("skips the JSON.stringify pass entirely once structuredContent covers it", () => {
+    // Spec-valid per CallToolResultSchema: content "is always present, but it may be empty" once
+    // outputSchema/structuredContent exists — it exists only for clients that don't read the latter.
+    expect(ok({ a: 1 }, true).content).toEqual([]);
+  });
 });
 
 describe("bigIntSafe", () => {

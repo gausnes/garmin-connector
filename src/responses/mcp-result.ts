@@ -22,9 +22,15 @@ export function bigIntSafe(data: unknown): unknown {
   return JSON.parse(JSON.stringify(data, jsonSafe));
 }
 
+/**
+ * For tools with an outputSchema, `content` is spec-allowed to be empty — it exists only for
+ * clients that don't yet read `structuredContent` (CallToolResultSchema: "this field is always
+ * present, but it may be empty"). Single-user/single-client here, so skip the JSON.stringify pass
+ * entirely rather than building a text block nothing reads.
+ */
 export function ok(data: unknown, structured = false) {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(data, jsonSafe, 1) }],
+    content: structured ? [] : [{ type: "text" as const, text: JSON.stringify(data, jsonSafe, 1) }],
     ...(structured ? { structuredContent: data as Record<string, unknown> } : {}),
   };
 }
