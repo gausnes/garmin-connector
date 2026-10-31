@@ -16,6 +16,7 @@ An [MCP](https://modelcontextprotocol.io) connector that gives Claude read-only 
 | `list_activities` | Recent activities with type, duration, distance, elevation, HR |
 | `get_activity` | Garmin's full summary for one activity |
 | `analyze_activity` | Downloads the FIT file → per-minute elevation, distance, speed, HR (and cadence/power), plus climb phases: lift-like (>40 m/min), self-powered, descent, flat |
+| `get_activity_fit` | The FIT file's decoded messages as-is (records, laps, sessions, events, HRV, devices), with counts per type and offset/limit paging |
 | `garmin_get` | Raw GET for any other Personal API path |
 
 Long per-minute arrays are summarized by default to save context. Pass `include_timeseries: true` to get them in full.

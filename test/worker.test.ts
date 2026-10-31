@@ -147,6 +147,7 @@ describe("MCP endpoint", () => {
         "analyze_activity",
         "garmin_get",
         "get_activity",
+        "get_activity_fit",
         "get_body_battery",
         "get_daily_summaries",
         "get_hrv",

@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { compact } from "./compact.js";
-import { analyzeActivityFile, LIFT_CLIMB_RATE_M_PER_MIN } from "./fit.js";
+import { analyzeActivityFile, decodeFitMessages, LIFT_CLIMB_RATE_M_PER_MIN } from "./fit.js";
 import { GarminApiError, type GarminClient } from "./garmin.js";
 
 const date = z
@@ -14,8 +14,13 @@ const includeTimeseries = z
   .optional()
   .describe("Include long per-minute arrays (large). Default false.");
 
+/** FIT messages can carry 64-bit fields that the SDK decodes as BigInt, which JSON can't encode. */
+function jsonSafe(_key: string, v: unknown): unknown {
+  return typeof v === "bigint" ? v.toString() : v;
+}
+
 function ok(data: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 1) }] };
+  return { content: [{ type: "text" as const, text: JSON.stringify(data, jsonSafe, 1) }] };
 }
 
 function fail(err: unknown) {
@@ -207,6 +212,34 @@ export function buildServer(garmin: GarminClient): McpServer {
       run(async () => {
         const file = await garmin.downloadActivity(activity_id);
         return analyzeActivityFile(file, { intervalMinutes: interval_minutes, includeSeries: include_series });
+      }),
+  );
+
+  server.registerTool(
+    "get_activity_fit",
+    {
+      title: "Activity FIT file contents",
+      description:
+        "Downloads the original FIT file and returns its decoded messages exactly as Garmin's FIT SDK " +
+        "reads them (record, lap, session, event, device_info, hrv, etc.), with no interpretation. " +
+        "Every call reports `counts` per message type. Each returned type is sliced to " +
+        "[offset, offset + limit); page through long types such as recordMesgs (one row per second " +
+        "or so) by raising offset. Use analyze_activity for a compact per-minute summary instead.",
+      inputSchema: {
+        activity_id: z.string().regex(/^[1-9]\d*$/).describe("From list_activities"),
+        message_types: z
+          .array(z.string().regex(/^[A-Za-z0-9_]+$/))
+          .optional()
+          .describe("Message types to return, e.g. [\"sessionMesgs\", \"lapMesgs\"]. Default: all"),
+        offset: z.number().int().min(0).optional().describe("Start index within each type. Default 0"),
+        limit: z.number().int().min(1).max(2000).optional().describe("Max messages per type. Default 200"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    ({ activity_id, message_types, offset, limit }) =>
+      run(async () => {
+        const file = await garmin.downloadActivity(activity_id);
+        return decodeFitMessages(file, { types: message_types, offset, limit });
       }),
   );
 

@@ -6,7 +6,7 @@ Cloudflare Worker serving a stateless MCP server (Streamable HTTP, JSON response
 - `src/index.ts`: Worker entry. Auth via `/mcp/<MCP_PATH_SECRET>` or `Authorization: Bearer` on `/mcp`. Builds a fresh MCP server per request.
 - `src/garmin.ts`: API client. API key → JWT bearer token (cached in isolate memory, refreshed within 1h of `exp`, retried once on 401).
 - `src/tools.ts`: MCP tool definitions (all read-only).
-- `src/fit.ts`: unzips the original activity file and decodes FIT with `@garmin/fitsdk` into per-minute series and climb phases.
+- `src/fit.ts`: unzips the original activity file and decodes FIT with `@garmin/fitsdk` into per-minute series and climb phases (`analyze_activity`), or returns the decoded messages as-is, paged (`get_activity_fit`).
 - `src/compact.ts`: trims long arrays from Garmin responses.
 
 ## Rules
