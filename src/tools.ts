@@ -306,7 +306,12 @@ export function buildServer(garmin: GarminClient): McpServer {
         "reads them (record, lap, session, event, device_info, hrv, etc.), with no interpretation. " +
         "Every call reports `counts` per message type. Each returned type is sliced to " +
         "[offset, offset + limit); page through long types such as recordMesgs (one row per second " +
-        "or so) by raising offset.",
+        "or so) by raising offset. Passing `message_types` is strongly preferred for long activities: " +
+        "it lets decoding stop as soon as enough messages are found instead of reading the whole file, " +
+        "making it far cheaper the smaller `offset` is. Without it, `counts_exact` is always true but " +
+        "the whole file must be decoded regardless of how small a page is requested. With it, " +
+        "`counts_exact: false` means `counts` is a lower bound (at least that many exist, decoding " +
+        "stopped once the page was found) rather than the file's true total.",
       inputSchema: {
         activity_id: z.string().regex(/^[1-9]\d*$/).describe("From list_activities"),
         message_types: z
