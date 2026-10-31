@@ -1,0 +1,35 @@
+{
+  "name": "garmin-connector",
+  "version": "0.1.0",
+  "description": "MCP connector exposing your Garmin Connect data (official Personal API) to Claude, on Cloudflare Workers",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "check": "tsc && vitest run && wrangler deploy --dry-run --outdir dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gausnes/garmin-connector.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/gausnes/garmin-connector/issues"
+  },
+  "homepage": "https://github.com/gausnes/garmin-connector#readme",
+  "dependencies": {
+    "@garmin/fitsdk": "^21.218.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "fflate": "^0.8.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261031.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.156.0"
+  },
+  "private": true,
+  "type": "module"
+}
