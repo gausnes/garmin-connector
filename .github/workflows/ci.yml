@@ -26,6 +26,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npx wrangler deploy --dry-run --outdir dist
+      - run: npm run check:cors-proxy
 
   deploy:
     # Deploys only from main, and only when Cloudflare credentials are configured

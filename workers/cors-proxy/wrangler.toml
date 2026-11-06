@@ -1,0 +1,25 @@
+name = "garmin-cors-proxy"
+main = "index.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Comma-separated exact origins allowed to call this Worker from a browser. No wildcard.
+# "http://localhost:8081" is the plan's placeholder (open questions 2 and 3: bridger's production
+# Web origin doesn't exist yet, and its local dev port isn't confirmed) — update once both are known.
+ALLOWED_ORIGINS = "http://localhost:8081"
+
+# Secrets (set with `npx wrangler secret put <NAME> -c workers/cors-proxy/wrangler.toml`):
+#   GARMIN_API_KEY          - Garmin Connect personal API key. Defaults to reusing the same secret
+#                             as the MCP connector's `wrangler.toml` (open question 5: whether to
+#                             mint a separate key instead is unresolved — this just picks the plan's
+#                             stated default).
+#   SESSION_SIGNING_SECRET  - random string, HMAC-signs the short-lived Bearer session token
+#   ACCESS_TEAM_DOMAIN      - e.g. "<your-team-name>.cloudflareaccess.com", for JWKS verification
+#   ACCESS_AUD              - the Access application's AUD tag (shown in its dashboard page)
+#   ALLOWED_EMAIL           - the one owner email Cloudflare Access authenticates (see plan §6 step
+#                             3/6). Not listed in the plan's own secrets comment block, but required
+#                             to implement the email check step 6 explicitly calls for.
+
+[observability]
+enabled = true

@@ -5,9 +5,12 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "dev:cors-proxy": "wrangler dev -c workers/cors-proxy/wrangler.toml",
+    "deploy:cors-proxy": "wrangler deploy -c workers/cors-proxy/wrangler.toml",
     "typecheck": "tsc",
     "test": "node --test test/",
-    "check": "tsc && node --test test/ && wrangler deploy --dry-run --outdir dist"
+    "check:cors-proxy": "wrangler deploy --dry-run --outdir dist-cors-proxy -c workers/cors-proxy/wrangler.toml",
+    "check": "tsc && node --test test/ && wrangler deploy --dry-run --outdir dist && npm run check:cors-proxy"
   },
   "repository": {
     "type": "git",
